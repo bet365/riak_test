@@ -17,7 +17,7 @@
 # that should work too.
 
 : ${R15B01:=$HOME/erlang-R15B01}
-: ${R16B02:=$HOME/erlang-R16B02}
+: ${R16B02:=$HOME/erlang/R16B02-basho10}
 
 # These are the default tags to use when building basho OTP releases.
 # Export different tags to get a different build. N.B. You will need to
@@ -29,7 +29,7 @@
 # By default the Open Source version of Riak will be used, but for internal
 # testing you can override this variable to use `riak_ee` instead
 : ${RT_USE_EE:=""}
-GITURL_RIAK="git://github.com/basho/riak"
+GITURL_RIAK="git://github.com/nsaadouni/riak"
 GITURL_RIAK_EE="git@github.com:basho/riak_ee"
 GITDIR="riak-src"
 
@@ -186,9 +186,14 @@ build()
     fi
 }
 
-build "riak-1.4.12" $R15B01 1.4.12 false
-build "riak-2.0.2" $R16B02 2.0.2
-build "riak-2.0.4" $R16B02 2.0.4
-build "riak-2.0.6" $R16B02 2.0.6
-build "riak-2.0.7" $R16B02 2.0.7
+
+# build "riak-2.0.2" $R16B02 2.0.2
+# build "riak-2.0.4" $R16B02 2.0.4
+# build "riak-2.0.5" $R16B02 2.0.5
+# build "riak-2.0.7" $R16B02 2.0.7
+# build "riak-2.1.4" $R16B02 2.1.4
+# build "riak-2.2.0" $R16B02 2.2.0
+
+ build "riak-2.2.4" $R16B02 2.2.4
+ build "riak-2.2.6" $R16B02 2.2.6
 echo
