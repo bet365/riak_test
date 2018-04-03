@@ -25,7 +25,7 @@
 -define(M, riak_core_connection_orig).
 
 %% @doc Return econnrefused for all connection attempts
-return_econnrefused(Addr,_ClientSpec) ->
+return_econnrefused(Addr,_Primary, _ClientSpec) ->
     ?I_INFO("Returning econnrefused for all connections to: ~p",[Addr]),
     {error, econnrefused}.
 
