@@ -294,7 +294,6 @@ make_fullsync_wait_fun(Node, Count) ->
 connect_cluster(Node, IP, Port) ->
     Res = rpc:call(Node, riak_repl_console, connect,
         [[IP, integer_to_list(Port)]]),
-  lager:info("connect to cluster result: ~p", [Res]),
     ?assertEqual(ok, Res).
 
 disconnect_cluster(Node, Name) ->

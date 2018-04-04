@@ -30,6 +30,6 @@ return_econnrefused(Addr,_Primary, _ClientSpec) ->
     {error, econnrefused}.
 
 %% @doc Pass through for sync_connect function
-sync_connect(Addr, ClientSpec) ->
+sync_connect(Addr, Primary, ClientSpec) ->
     ?I_INFO("Intercept is allowing connections"),
-    ?M:sync_connect_orig(Addr, ClientSpec).
+    ?M:sync_connect_orig(Addr, Primary, ClientSpec).

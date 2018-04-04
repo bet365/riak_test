@@ -208,7 +208,7 @@ error_cleanup_test() ->
     % Insert intercept to cause some errors on connect
     lager:info("Adding intercept to cause econnrefused errors"),
     Intercept = {riak_core_connection,[{{sync_connect, 3}, return_econnrefused}]},
-    [ok = rt_intercept:add(Target, Intercept) || Target <- ANodes],
+    [ok = rt_intercept:add(Node, Intercept) || Node <- ANodes],
 
     lager:info("Connecting A to B"),
     connect_clusters(AFirst, BFirst),
