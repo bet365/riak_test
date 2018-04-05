@@ -51,8 +51,10 @@ confirm() ->
     %% Enable RT replication from cluster "A" to cluster "B"
     enable_rt(LeaderA, ANodes),
 
+    timer:sleep(1000),
+
     %% Verify that heartbeats are being acknowledged by the sink (B) back to source (A)
-    ?assertEqual(verify_heartbeat_messages(LeaderA), true),
+    ?assertEqual(true, verify_heartbeat_messages(LeaderA)),
 
     %% Verify RT repl of objects
     verify_rt(LeaderA, LeaderB),
@@ -60,7 +62,8 @@ confirm() ->
     %% Cause heartbeat messages to not be delivered, but remember the current
     %% Pid of the RT connection. It should change after we stop heartbeats
     %% because the RT connection will restart if all goes well.
-    RTConnPid1 = get_rt_conn_pid(LeaderA),
+    RTSourceConnMgrPid = get_rt_source_conn_mgr_pid(LeaderA),
+    Endpoints1 = rpc:call(LeaderA, riak_repl2_rtsource_conn_mgr, get_endpoints, [RTSourceConnMgrPid]),
     lager:info("Suspending HB"),
     suspend_heartbeat_messages(LeaderA),
 
@@ -75,12 +78,16 @@ confirm() ->
     timer:sleep(timer:seconds(?HB_TIMEOUT*2) + 1000),
 
     %% Verify that RT connection has restarted by noting that it's Pid has changed
-    RTConnPid2 = get_rt_conn_pid(LeaderA),
-    ?assertNotEqual(RTConnPid1, RTConnPid2),
+    Endpoints2 = rpc:call(LeaderA, riak_repl2_rtsource_conn_mgr, get_endpoints, [RTSourceConnMgrPid]),
+    RTSourceConnMgrPid ! rebalance_now,
+    timer:sleep(3000),
+    lager:info("Endpoints 1 ~p
+    Endpoints 2 ~p ", [Endpoints1, Endpoints2]),
+    ?assertNotEqual(Endpoints1, Endpoints2),
 
     %% Verify that heart beats are not being ack'd
     rt:log_to_nodes([LeaderA], "Verify suspended HB"),
-    ?assertEqual(verify_heartbeat_messages(LeaderA), false),
+    ?assertEqual(false, verify_heartbeat_messages(LeaderA)),
 
     %% Resume heartbeat messages from source and allow some time to ack back.
     %% Wait one second longer than the timeout
@@ -90,7 +97,7 @@ confirm() ->
 
     %% Verify that heartbeats are being acknowledged by the sink (B) back to source (A)
     rt:log_to_nodes([LeaderA], "Verify resumed HB"),
-    ?assertEqual(verify_heartbeat_messages(LeaderA), true),
+    ?assertEqual(true, verify_heartbeat_messages(LeaderA)),
 
     %% Verify RT repl of objects
     verify_rt(LeaderA, LeaderB),
@@ -239,7 +246,7 @@ suspend_heartbeat_responses(Node) ->
                             [{{send_heartbeat, 2}, drop_send_heartbeat_resp}]}).
 
 %% @doc Get the Pid of the first RT source connection on Node
-get_rt_conn_pid(Node) ->
+get_rt_source_conn_mgr_pid(Node) ->
     [{_Remote, Pid}|Rest] = rpc:call(Node, riak_repl2_rtsource_conn_sup, enabled, []),
     case Rest of
         [] -> ok;
@@ -250,12 +257,22 @@ get_rt_conn_pid(Node) ->
 %% @doc Verify that heartbeat messages are being ack'd from the RT sink back to source Node
 verify_heartbeat_messages(Node) ->
     lager:info("Verify heartbeats"),
-    Pid = get_rt_conn_pid(Node),
-    Status = rpc:call(Node, riak_repl2_rtsource_conn, status, [Pid], ?RPC_TIMEOUT),
+    Pid = get_rt_source_conn_mgr_pid(Node),
+    StatusList = rpc:call(Node, riak_repl2_rtsource_conn_mgr, get_all_status, [Pid], ?RPC_TIMEOUT),
+    Status = first_or_empty(StatusList),
+    lager:info("Status of first rtsource conn: ~p", [Status]),
     HBRTT = proplists:get_value(hb_rtt, Status),
     case HBRTT of
         undefined ->
             false;
         RTT ->
             is_integer(RTT)
+    end.
+
+first_or_empty(L) ->
+    case L of
+        [] ->
+            [];
+        X ->
+            lists:nth(1,X)
     end.
