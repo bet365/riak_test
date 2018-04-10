@@ -55,7 +55,7 @@ confirm() ->
     verify_rt(LeaderA, LeaderB),
 
     %% Verify that heartbeats are being acknowledged by the sink (B) back to source (A)
-%%    ?assertEqual(true, verify_heartbeat_messages(LeaderA)),
+    ?assertEqual(true, verify_heartbeat_messages(LeaderA)),
 
     %% Cause heartbeat messages to not be delivered, but remember the current
     %% Pid of the RT connection. It should change after we stop heartbeats
@@ -63,6 +63,7 @@ confirm() ->
     RTSourceConnMgrPid = get_rt_source_conn_mgr_pid(LeaderA),
     Endpoints1 = rpc:call(LeaderA, riak_repl2_rtsource_conn_mgr, get_endpoints, [RTSourceConnMgrPid]),
     lager:info("Suspending HB"),
+    rt:log_to_nodes([LeaderA], "Suspending HB"),
     suspend_heartbeat_messages(LeaderA),
 
     %% sleep longer than the HB timeout interval to force re-connection;
@@ -78,24 +79,26 @@ confirm() ->
     %% Verify that RT connection has restarted by noting that it's Pid has changed
     Endpoints2 = rpc:call(LeaderA, riak_repl2_rtsource_conn_mgr, get_endpoints, [RTSourceConnMgrPid]),
     RTSourceConnMgrPid ! rebalance_now,
-    timer:sleep(3000),
     lager:info("Endpoints 1 ~p
     Endpoints 2 ~p ", [Endpoints1, Endpoints2]),
     ?assertNotEqual(Endpoints1, Endpoints2),
 
     %% Verify that heart beats are not being ack'd
     rt:log_to_nodes([LeaderA], "Verify suspended HB"),
+    lager:info("Verify suspended HB"),
     ?assertEqual(false, verify_heartbeat_messages(LeaderA)),
 
     %% Resume heartbeat messages from source and allow some time to ack back.
     %% Wait one second longer than the timeout
     rt:log_to_nodes([LeaderA], "Resuming HB"),
+    lager:info("Resuming HB"),
     resume_heartbeat_messages(LeaderA),
     timer:sleep(timer:seconds(?HB_TIMEOUT) + 1000),
 
     %% Verify that heartbeats are being acknowledged by the sink (B) back to source (A)
-%%    rt:log_to_nodes([LeaderA], "Verify resumed HB"),
-%%    ?assertEqual(true, verify_heartbeat_messages(LeaderA)),
+    rt:log_to_nodes([LeaderA], "Verify resumed HB"),
+    lager:info("Verify resumed HB"),
+    ?assertEqual(true, verify_heartbeat_messages(LeaderA)),
 
     %% Verify RT repl of objects
     verify_rt(LeaderA, LeaderB),
@@ -125,11 +128,13 @@ verify_rt(LeaderA, LeaderB) ->
     Last = 200,
 
     %% Write some objects to the source cluster (A),
+    rt:log_to_nodes([LeaderA], "write objects (verify_rt)"),
     lager:info("Writing ~p keys to ~p, which should RT repl to ~p",
                [Last-First+1, LeaderA, LeaderB]),
     ?assertEqual([], repl_util:do_write(LeaderA, First, Last, TestBucket, 2)),
 
     %% verify data is replicated to B
+    rt:log_to_nodes([LeaderA], "read objects (verify_rt)"),
     lager:info("Reading ~p keys written from ~p", [Last-First+1, LeaderB]),
     ?assertEqual(0, repl_util:wait_for_reads(LeaderB, First, Last, TestBucket, 2)).
 
