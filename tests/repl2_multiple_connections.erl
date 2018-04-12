@@ -187,19 +187,16 @@ verify_rt(LeaderA, LeaderB) ->
 %                                         Helper Functions                                                             %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 check_connections({SourceLeader, _SinkLeader, SourceNodes, SinkNodes}) ->
+  % ----------------------------------------------------------------------------------------------------------%
+  %                                         Source Tests                                                      %
+  % ----------------------------------------------------------------------------------------------------------%
   DataMgrRealtimeConnections = rpc:call(SourceLeader, riak_repl2_rtsource_conn_data_mgr, read, [realtime_connections, "B"]),
-  Keys = dict:fetch_keys(DataMgrRealtimeConnections),
-
-  ActualSourceConnectionCounts = lists:sort(count_primary_connections_for_source_nodes(DataMgrRealtimeConnections, Keys, [])),
-%%  ActualSinkConnectionCounts = lists:sort(count_primary_connections_for_sink_nodes(DataMgrRealtimeConnections, Keys, [])),
-  Inverted = invert_dictionary(DataMgrRealtimeConnections),
-  lager:info("INVERTED REALTIME CONNECTIONS ~p", [Inverted]),
-
-  ExpectedSourceConnectionCounts = lists:sort(build_expected_primary_connection_counts(for_source_nodes, SourceNodes, SinkNodes)),
-  _ExpectedSinkConnectionCounts = lists:sort(build_expected_primary_connection_counts(for_sink_nodes, SourceNodes, SinkNodes)),
-
   ConnMgrRealtimeConnections = build_realtime_connections_from_conn_mgr(SourceNodes),
   RtSourceConnRealtimeConnections = build_realtime_connections_from_rtsource_conn(SourceNodes),
+
+  SourceRTCKeys = dict:fetch_keys(DataMgrRealtimeConnections),
+  ActualSourceConnectionCounts = lists:sort(count_primary_connections(DataMgrRealtimeConnections, SourceRTCKeys, [])),
+  ExpectedSourceConnectionCounts = lists:sort(build_expected_primary_connection_counts(for_source_nodes, SourceNodes, SinkNodes)),
 
   SortedDataMgrRTC = dict_to_sorted_list(DataMgrRealtimeConnections),
   SortedConnMgrRTC = dict_to_sorted_list(ConnMgrRealtimeConnections),
@@ -213,76 +210,26 @@ check_connections({SourceLeader, _SinkLeader, SourceNodes, SinkNodes}) ->
 
   ?assertEqual(SortedDataMgrRTC, SortedConnMgrRTC),
   ?assertEqual(SortedDataMgrRTC, SortedRtSourceRTC),
-  ?assertEqual(ExpectedSourceConnectionCounts, ActualSourceConnectionCounts).
+  ?assertEqual(ExpectedSourceConnectionCounts, ActualSourceConnectionCounts),
 
-build_expected_primary_connection_counts(For, SourceNodes, SinkNodes) ->
-  case {SourceNodes, SinkNodes} of
-    {undefined, _} ->
-      [];
-    {_, undefined} ->
-      [];
-    _ ->
-      {M,N} = case For of
-                for_source_nodes ->
-                  {length(SourceNodes), length(SinkNodes)};
-                for_sink_nodes ->
-                  {length(SinkNodes), length(SourceNodes)}
-              end,
-      case M*N of
-        0 ->
-          [];
-        _ ->
-          case M >= N of
-            true ->
-              [1 || _ <-  lists:seq(1,M)];
-            false ->
-              Base = N div M,
-              NumberOfNodesWithOneAdditionalConnection = N rem M,
-              NumberOfNodesWithBaseConnections = M - NumberOfNodesWithOneAdditionalConnection,
-              [Base+1 || _ <-lists:seq(1,NumberOfNodesWithOneAdditionalConnection)] ++ [Base || _ <- lists:seq(1,NumberOfNodesWithBaseConnections)]
-          end
-      end
-  end.
+  % ----------------------------------------------------------------------------------------------------------%
+  %                                         Sink Tests                                                        %
+  % ----------------------------------------------------------------------------------------------------------%
+  InvertedDataMgrRealtimeConnections = invert_dictionary(DataMgrRealtimeConnections),
+  InvertedRtSinkRealtimeConnections = build_inverted_realtime_connections_from_rtsink(SourceNodes, SinkNodes),
 
 
-count_primary_connections_for_source_nodes(_RealtimeConnections, [], List) ->
-  List;
-count_primary_connections_for_source_nodes(RealtimeConnections, [Key|Keys], List) ->
-  NodeConnections = dict:fetch(Key, RealtimeConnections),
-  count_primary_connections_for_source_nodes(RealtimeConnections, Keys, List ++ [get_primary_count(NodeConnections,0)]).
-
-get_primary_count([], N) ->
-  N;
-get_primary_count([{_,Primary}|Rest], N) ->
-  case Primary of
-    true ->
-      get_primary_count(Rest, N+1);
-    _ ->
-      get_primary_count(Rest, N)
-  end.
-
-build_realtime_connections_from_conn_mgr(SourceNodes) ->
-  build_realtime_connections_from_conn_mgr_helper(SourceNodes, dict:new()).
-
-build_realtime_connections_from_conn_mgr_helper([], Dict) ->
-  Dict;
-build_realtime_connections_from_conn_mgr_helper([SourceNode | Rest], Dict) ->
-  [{"B",Pid}] = rpc:call(SourceNode, riak_repl2_rtsource_conn_sup, enabled, []),
-  Endpoints = rpc:call(SourceNode, riak_repl2_rtsource_conn_mgr, get_endpoints, [Pid]),
-  NewDict = dict:store(SourceNode, orddict:fetch_keys(Endpoints), Dict),
-  build_realtime_connections_from_conn_mgr_helper(Rest, NewDict).
+  SinkRTCKeys = dict:fetch_keys(InvertedDataMgrRealtimeConnections),
+  ActualSinkConnectionCounts = lists:sort(count_primary_connections(InvertedDataMgrRealtimeConnections, SinkRTCKeys, [])),
+  ExpectedSinkConnectionCounts = lists:sort(build_expected_primary_connection_counts(for_sink_nodes, SourceNodes, SinkNodes)),
 
 
-build_realtime_connections_from_rtsource_conn(SourceNodes) ->
-  build_realtime_connections_from_rtsource_conn_helper(SourceNodes, dict:new()).
-
-build_realtime_connections_from_rtsource_conn_helper([], Dict) ->
-  Dict;
-build_realtime_connections_from_rtsource_conn_helper([SourceNode| Rest], Dict) ->
-  ConnsList = [ rpc:call(SourceNode, riak_repl2_rtsource_conn, get_address, [Pid]) ||
-    {_,Pid,_,_} <- rpc:call(SourceNode, supervisor, which_children, [riak_repl2_rtsource_conn_2_sup_B])],
-  NewDict = dict:store(SourceNode, ConnsList, Dict),
-  build_realtime_connections_from_conn_mgr_helper(Rest, NewDict).
+  lager:info("SORTED REALTIME CONNECTIONS (data):     ~p", [SortedDataMgrRTC]),
+  lager:info("INVERTED REALTIME CONNECTIONS (data) ~p", [InvertedDataMgrRealtimeConnections]),
+  lager:info("INVERTED REALTIME CONNECTIONS (conns) ~p", [InvertedRtSinkRealtimeConnections]),
+  lager:info("(ACTUAL) SINK CONNECTION COUNT ~p", [ActualSinkConnectionCounts]),
+  lager:info("(EXPECTED) SINK CONNECTION COUNT ~p", [ExpectedSinkConnectionCounts]),
+  ok.
 
 
 dict_to_sorted_list(Dictioanry) ->
@@ -311,3 +258,155 @@ invert_dictionary_helper_builder(Source, [{Sink,Primary}|Rest], Dict) ->
                 Dict
             end,
   invert_dictionary_helper_builder(Source, Rest, NewDict).
+
+
+build_expected_primary_connection_counts(For, SourceNodes, SinkNodes) ->
+  case {SourceNodes, SinkNodes} of
+    {undefined, _} ->
+      [];
+    {_, undefined} ->
+      [];
+    _ ->
+      {M,N} = case For of
+                for_source_nodes ->
+                  {length(SourceNodes), length(SinkNodes)};
+                for_sink_nodes ->
+                  {length(SinkNodes), length(SourceNodes)}
+              end,
+      case M*N of
+        0 ->
+          [];
+        _ ->
+          case M >= N of
+            true ->
+              [1 || _ <-  lists:seq(1,M)];
+            false ->
+              Base = N div M,
+              NumberOfNodesWithOneAdditionalConnection = N rem M,
+              NumberOfNodesWithBaseConnections = M - NumberOfNodesWithOneAdditionalConnection,
+              [Base+1 || _ <-lists:seq(1,NumberOfNodesWithOneAdditionalConnection)] ++ [Base || _
+                <- lists:seq(1,NumberOfNodesWithBaseConnections)]
+          end
+      end
+  end.
+
+
+count_primary_connections(_ConnectionDictionary, [], List) ->
+  List;
+count_primary_connections(ConnectionDictionary, [Key|Keys], List) ->
+  NodeConnections = dict:fetch(Key, ConnectionDictionary),
+  count_primary_connections(ConnectionDictionary, Keys, List ++ [get_primary_count(NodeConnections,0)]).
+
+get_primary_count([], N) ->
+  N;
+get_primary_count([{_,Primary}|Rest], N) ->
+  case Primary of
+    true ->
+      get_primary_count(Rest, N+1);
+    _ ->
+      get_primary_count(Rest, N)
+  end.
+
+
+
+
+
+
+
+
+
+
+build_realtime_connections_from_conn_mgr(SourceNodes) ->
+  build_realtime_connections_from_conn_mgr_helper(SourceNodes, dict:new()).
+
+build_realtime_connections_from_conn_mgr_helper([], Dict) ->
+  Dict;
+build_realtime_connections_from_conn_mgr_helper([SourceNode | Rest], Dict) ->
+  [{"B",Pid}] = rpc:call(SourceNode, riak_repl2_rtsource_conn_sup, enabled, []),
+  Endpoints = rpc:call(SourceNode, riak_repl2_rtsource_conn_mgr, get_endpoints, [Pid]),
+  NewDict = dict:store(SourceNode, orddict:fetch_keys(Endpoints), Dict),
+  build_realtime_connections_from_conn_mgr_helper(Rest, NewDict).
+
+
+
+
+
+
+
+
+
+
+build_realtime_connections_from_rtsource_conn(SourceNodes) ->
+  build_realtime_connections_from_rtsource_conn_helper(SourceNodes, dict:new()).
+
+build_realtime_connections_from_rtsource_conn_helper([], Dict) ->
+  Dict;
+build_realtime_connections_from_rtsource_conn_helper([SourceNode| Rest], Dict) ->
+  ConnsList = [ rpc:call(SourceNode, riak_repl2_rtsource_conn, get_address, [Pid]) ||
+    {_,Pid,_,_} <- rpc:call(SourceNode, supervisor, which_children, [riak_repl2_rtsource_conn_2_sup_B])],
+  NewDict = dict:store(SourceNode, ConnsList, Dict),
+  build_realtime_connections_from_conn_mgr_helper(Rest, NewDict).
+
+
+
+
+
+
+
+
+
+
+build_inverted_realtime_connections_from_rtsink(SourceNodes, SinkNodes) ->
+  Dict1 = build_rtsink_dictionary(SinkNodes, dict:new()),
+  Dict2 = build_rtsource_dictionary(SourceNodes, dict:new()),
+  make_realtime_connection_data(Dict1,Dict2).
+
+
+build_rtsink_dictionary([], Dict) ->
+  Dict;
+build_rtsink_dictionary([Sink|Rest], Dict) ->
+  SinkPids = rpc:call(Sink, riak_repl2_rtsink_conn_sup, started, []),
+  Key = rpc:call(Sink, app_helper, get_env, [riak_core, cluster_mgr]),
+  build_rtsink_dictionary(Rest, build_dict_with_rtsink_peernames(SinkPids, Sink, Key, Dict)).
+
+build_dict_with_rtsink_peernames([], _, _, Dict) ->
+  Dict;
+build_dict_with_rtsink_peernames([Pid|Rest], Sink, Key, Dict) ->
+  Peername = rpc:call(Sink, riak_repl2_rtsink_conn, get_peername, [Pid]),
+  NewDict = dict:append(Key, Peername, Dict),
+  build_dict_with_rtsink_peernames(Rest, Sink, Key, NewDict).
+
+
+
+build_rtsource_dictionary([], Dict) ->
+  Dict;
+build_rtsource_dictionary([SourceNode| Rest], Dict) ->
+  PeernamePrimary = [ rpc:call(SourceNode, riak_repl2_rtsource_conn, get_socketname_primary, [Pid]) ||
+    {_,Pid,_,_} <- rpc:call(SourceNode, supervisor, which_children, [riak_repl2_rtsource_conn_2_sup_B])],
+  build_rtsource_dictionary(Rest, build_dict_with_rtsource_node_names(PeernamePrimary, SourceNode, Dict)).
+
+build_dict_with_rtsource_node_names([], _, Dict) ->
+  Dict;
+build_dict_with_rtsource_node_names([{Peername, Primary}|Rest], SourceNode, Dict) ->
+  NewDict = dict:store(Peername, {SourceNode, Primary}, Dict),
+  build_dict_with_rtsource_node_names(Rest, SourceNode, NewDict).
+
+
+make_realtime_connection_data(SinkDict, SourceDict) ->
+  RealtimeConnections = dict:new(),
+  Keys = dict:fetch_keys(SinkDict),
+  populate_realtime_connections(Keys, SinkDict, SourceDict, RealtimeConnections).
+
+populate_realtime_connections([], _, _, RealtimeConnections) ->
+  RealtimeConnections;
+populate_realtime_connections([Key|Rest], SinkDict, SourceDict, RealtimeConnections) ->
+  Peernames = dict:fetch(Key, SinkDict),
+  NewRealtimeConnections = populate_realtime_connections_helper({Key, Peernames}, SourceDict, RealtimeConnections),
+  populate_realtime_connections(Rest, SinkDict, SourceDict, NewRealtimeConnections).
+
+populate_realtime_connections_helper({_, []}, _, RealtimeConnections) ->
+  RealtimeConnections;
+populate_realtime_connections_helper({SinkIPPort, [Key|Rest]}, SourceDict, RealtimeConnections) ->
+  {SourceNode, Primary} = dict:fetch(Key, SourceDict),
+  NewRealtimeConnections = dict:append(SinkIPPort, {SourceNode, Primary}, RealtimeConnections),
+  populate_realtime_connections_helper({SinkIPPort, Rest}, SourceDict, NewRealtimeConnections).
