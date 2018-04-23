@@ -7,8 +7,21 @@
 
 
 confirm() ->
-  [ run_test(N) || N <- lists:seq(1,7)],
-%%  run_test(6),
+  %% run all tests
+  [ run_test(N) || N <- lists:seq(1,19)],
+
+  %% run the most necessary tests
+%%  [ run_test(N) || N <- [1,2,3,4,5,7,9,11,13,16,18]],
+
+  %% run a specific test
+  run_test(exit_error_data_mgr_not_leader),
+  run_test(exit_error_data_mgr_leader),
+  run_test(exit_error_conn_mgr_not_leader),
+  run_test(exit_error_conn_mgr_leader),
+  run_test(exit_error_rtsource_conn_not_leader),
+  run_test(exit_error_rtsource_conn_leader),
+
+
   pass.
 
 run_test(N) ->
@@ -31,18 +44,19 @@ test(1) ->
   RealtimeRemovealDelay = 0,
   NodeWaterPolling = 10,
   SinkClusterPolling = 10,
-  NumberOfSourceNodes = 3,
-  NumberOfSinkNodes = 3,
+  NumberOfSourceNodes = 4,
+  NumberOfSinkNodes = 4,
   ConfVar = {RealtimeConnectionRebalancingDelay, RealtimeRemovealDelay, NodeWaterPolling, SinkClusterPolling},
   SourceSinkSizes = {NumberOfSourceNodes, NumberOfSinkNodes},
   Nodes = make_connected_clusters(ConfVar, SourceSinkSizes),
-  {SourceLeader, SinkLeader, SourceNodes, SinkNodes, _SpareNodes} = Nodes,
+  {SourceLeader, SinkLeader, SourceNodes, SinkNodes, SpareNodes} = Nodes,
   enable_rt(SourceLeader, SourceNodes),
   verify_rt(SourceLeader, SinkLeader),
-  timer:sleep(5000),
+  timer:sleep(1000),
   check_connections(Nodes),
   rt:clean_cluster(SourceNodes),
   rt:clean_cluster(SinkNodes),
+  rt:clean_cluster(SpareNodes),
   pass;
 
 %% Test 2
@@ -60,13 +74,14 @@ test(2) ->
   ConfVar = {RealtimeConnectionRebalancingDelay, RealtimeRemovealDelay, NodeWaterPolling, SinkClusterPolling},
   SourceSinkSizes = {NumberOfSourceNodes, NumberOfSinkNodes},
   Nodes = make_connected_clusters(ConfVar, SourceSinkSizes),
-  {SourceLeader, SinkLeader, SourceNodes, SinkNodes, _SpareNodes} = Nodes,
+  {SourceLeader, SinkLeader, SourceNodes, SinkNodes, SpareNodes} = Nodes,
   enable_rt(SourceLeader, SourceNodes),
   verify_rt(SourceLeader, SinkLeader),
-  timer:sleep(5000),
+  timer:sleep(1000),
   check_connections(Nodes),
   rt:clean_cluster(SourceNodes),
   rt:clean_cluster(SinkNodes),
+  rt:clean_cluster(SpareNodes),
   pass;
 
 
@@ -85,18 +100,19 @@ test(3) ->
   ConfVar = {RealtimeConnectionRebalancingDelay, RealtimeRemovealDelay, NodeWaterPolling, SinkClusterPolling},
   SourceSinkSizes = {NumberOfSourceNodes, NumberOfSinkNodes},
   Nodes = make_connected_clusters(ConfVar, SourceSinkSizes),
-  {SourceLeader, SinkLeader, SourceNodes, SinkNodes, _SpareNodes} = Nodes,
+  {SourceLeader, SinkLeader, SourceNodes, SinkNodes, SpareNodes} = Nodes,
   enable_rt(SourceLeader, SourceNodes),
   verify_rt(SourceLeader, SinkLeader),
-  timer:sleep(5000),
+  timer:sleep(1000),
   check_connections(Nodes),
   rt:clean_cluster(SourceNodes),
   rt:clean_cluster(SinkNodes),
+  rt:clean_cluster(SpareNodes),
   pass;
 
 
 test(4) ->
-  RealtimeConnectionRebalancingDelay = 0,
+  RealtimeConnectionRebalancingDelay = 2,
   RealtimeRemovealDelay = 0,
   NodeWaterPolling = 1,
   SinkClusterPolling = 1,
@@ -116,22 +132,22 @@ test(4) ->
   NewSourceNodes = SourceNodes ++ [SpareNode1],
   NewSinkNodes = SinkNodes ++ [SpareNode2],
   NewSpareNodes = [],
-  NewNodes = {SourceLeader, SinkLeader, NewSourceNodes, NewSinkNodes, NewSpareNodes},
+  NewNodes = {hd(NewSourceNodes), hd(NewSinkNodes), NewSourceNodes, NewSinkNodes, NewSpareNodes},
 
   rt:join(SpareNode1, SourceLeader),
   rt:join(SpareNode2, SinkLeader),
   ?assertEqual(ok, rt:wait_until_no_pending_changes(NewSourceNodes)),
   ?assertEqual(ok, rt:wait_until_no_pending_changes(NewSinkNodes)),
-  timer:sleep(1000),
+  timer:sleep(5000),
   check_connections(NewNodes),
 
   rt:clean_cluster(SourceNodes),
   rt:clean_cluster(SinkNodes),
-  rt:clean_cluster(NewSpareNodes),
+  rt:clean_cluster(SpareNodes),
   pass;
 
 test(5) ->
-  RealtimeConnectionRebalancingDelay = 0,
+  RealtimeConnectionRebalancingDelay = 2,
   RealtimeRemovealDelay = 0,
   NodeWaterPolling = 1,
   SinkClusterPolling = 1,
@@ -145,25 +161,26 @@ test(5) ->
   verify_rt(SourceLeader, SinkLeader),
   check_connections(Nodes),
 
-  %% (3,3) -> (4,4)
+  %% (3,3) -> (4,3)
   SpareNode1 = lists:nth(1,SpareNodes),
   _SpareNode2 = lists:nth(2, SpareNodes),
   NewSourceNodes = SourceNodes ++ [SpareNode1],
+  NewSinkNodes = SinkNodes,
   NewSpareNodes = SpareNodes -- [SpareNode1],
-  NewNodes = {SourceLeader, SinkLeader, NewSourceNodes, SinkNodes, NewSpareNodes},
+  NewNodes = {hd(NewSourceNodes), hd(NewSinkNodes), NewSourceNodes, NewSinkNodes, NewSpareNodes},
 
   rt:join(SpareNode1, SourceLeader),
   ?assertEqual(ok, rt:wait_until_no_pending_changes(NewSourceNodes)),
-  timer:sleep(1000),
+  timer:sleep(5000),
   check_connections(NewNodes),
 
   rt:clean_cluster(SourceNodes),
   rt:clean_cluster(SinkNodes),
-  rt:clean_cluster(NewSpareNodes),
+  rt:clean_cluster(SpareNodes),
   pass;
 
 test(6) ->
-  RealtimeConnectionRebalancingDelay = 0,
+  RealtimeConnectionRebalancingDelay = 2,
   RealtimeRemovealDelay = 0,
   NodeWaterPolling = 1,
   SinkClusterPolling = 1,
@@ -177,22 +194,23 @@ test(6) ->
   verify_rt(SourceLeader, SinkLeader),
   check_connections(Nodes),
 
-  %% (3,3) -> (4,4)
+  %% (3,3) -> (5,3)
   SpareNode1 = lists:nth(1,SpareNodes),
   SpareNode2 = lists:nth(2, SpareNodes),
   NewSourceNodes = SourceNodes ++ [SpareNode1, SpareNode2],
+  NewSinkNodes = SinkNodes,
   NewSpareNodes = [],
-  NewNodes = {SourceLeader, SinkLeader, NewSourceNodes, SinkNodes, NewSpareNodes},
+  NewNodes = {hd(NewSourceNodes), hd(NewSinkNodes), NewSourceNodes, NewSinkNodes, NewSpareNodes},
 
   rt:join(SpareNode1, SourceLeader),
   rt:join(SpareNode2, SourceLeader),
   ?assertEqual(ok, rt:wait_until_no_pending_changes(NewSourceNodes)),
-  timer:sleep(1000),
+  timer:sleep(5000),
   check_connections(NewNodes),
 
   rt:clean_cluster(SourceNodes),
   rt:clean_cluster(SinkNodes),
-  rt:clean_cluster(NewSpareNodes),
+  rt:clean_cluster(SpareNodes),
   pass;
 
 test(7) ->
@@ -210,23 +228,660 @@ test(7) ->
   verify_rt(SourceLeader, SinkLeader),
   check_connections(Nodes),
 
-  %% (3,3) -> (4,4)
+  %% (3,3) -> (4,2)
   SpareNode1 = lists:nth(1,SpareNodes),
   SpareNode2 = lists:nth(2, SpareNodes),
   NewSourceNodes = SourceNodes ++ [SpareNode1],
-  NewSinkNodes = SinkNodes -- [hd(SinkNodes)],
+  [OldSink1| NewSinkNodes] = SinkNodes,
   NewSpareNodes = [SpareNode2],
-  NewNodes = {SourceLeader, SinkLeader, NewSourceNodes, NewSinkNodes, NewSpareNodes},
+  NewNodes = {hd(NewSourceNodes), hd(NewSinkNodes), NewSourceNodes, NewSinkNodes, NewSpareNodes},
 
   rt:join(SpareNode1, SourceLeader),
-  rt:stop_and_wait(hd(SinkNodes)),
+  rt:stop_and_wait(OldSink1),
   ?assertEqual(ok, rt:wait_until_no_pending_changes(NewSourceNodes)),
   timer:sleep(5000),
   check_connections(NewNodes),
 
+  rt:start(OldSink1),
+  timer:sleep(3000),
   rt:clean_cluster(SourceNodes),
-  rt:clean_cluster(NewSinkNodes),
-  rt:clean_cluster(NewSpareNodes),
+  rt:clean_cluster(SinkNodes),
+  rt:clean_cluster(SpareNodes),
+  pass;
+
+test(8) ->
+  RealtimeConnectionRebalancingDelay = 2,
+  RealtimeRemovealDelay = 0,
+  NodeWaterPolling = 1,
+  SinkClusterPolling = 1,
+  NumberOfSourceNodes = 3,
+  NumberOfSinkNodes = 3,
+  ConfVar = {RealtimeConnectionRebalancingDelay, RealtimeRemovealDelay, NodeWaterPolling, SinkClusterPolling},
+  SourceSinkSizes = {NumberOfSourceNodes, NumberOfSinkNodes},
+  Nodes = make_connected_clusters(ConfVar, SourceSinkSizes),
+  {SourceLeader, SinkLeader, SourceNodes, SinkNodes, SpareNodes} = Nodes,
+  enable_rt(SourceLeader, SourceNodes),
+  verify_rt(SourceLeader, SinkLeader),
+  check_connections(Nodes),
+
+  %% (3,3) -> (4,1)
+  SpareNode1 = lists:nth(1,SpareNodes),
+  SpareNode2 = lists:nth(2, SpareNodes),
+  NewSourceNodes = SourceNodes ++ [SpareNode1],
+  [OldSink1, OldSink2 | NewSinkNodes] = SinkNodes,
+  NewSpareNodes = [SpareNode2],
+  NewNodes = {hd(NewSourceNodes), hd(NewSinkNodes), NewSourceNodes, NewSinkNodes, NewSpareNodes},
+
+  rt:join(SpareNode1, SourceLeader),
+  rt:stop_and_wait(OldSink1),
+  rt:stop_and_wait(OldSink2),
+  ?assertEqual(ok, rt:wait_until_no_pending_changes(NewSourceNodes)),
+  timer:sleep(5000),
+  check_connections(NewNodes),
+
+  rt:start(OldSink1),
+  rt:start(OldSink2),
+  timer:sleep(3000),
+  rt:clean_cluster(SourceNodes),
+  rt:clean_cluster(SinkNodes),
+  rt:clean_cluster(SpareNodes),
+  pass;
+
+test(9) ->
+  RealtimeConnectionRebalancingDelay = 2,
+  RealtimeRemovealDelay = 0,
+  NodeWaterPolling = 1,
+  SinkClusterPolling = 1,
+  NumberOfSourceNodes = 3,
+  NumberOfSinkNodes = 3,
+  ConfVar = {RealtimeConnectionRebalancingDelay, RealtimeRemovealDelay, NodeWaterPolling, SinkClusterPolling},
+  SourceSinkSizes = {NumberOfSourceNodes, NumberOfSinkNodes},
+  Nodes = make_connected_clusters(ConfVar, SourceSinkSizes),
+  {SourceLeader, SinkLeader, SourceNodes, SinkNodes, SpareNodes} = Nodes,
+  enable_rt(SourceLeader, SourceNodes),
+  verify_rt(SourceLeader, SinkLeader),
+  check_connections(Nodes),
+
+  %% (3,3) -> (2,4)
+  SpareNode1 = lists:nth(1,SpareNodes),
+  SpareNode2 = lists:nth(2, SpareNodes),
+
+  [OldSourceNode1 | NewSourceNodes] = SourceNodes,
+  NewSinkNodes = SinkNodes ++ [SpareNode1],
+  NewSpareNodes = [SpareNode2],
+  NewNodes = {hd(NewSourceNodes), hd(NewSinkNodes), NewSourceNodes, NewSinkNodes, NewSpareNodes},
+
+  rt:join(SpareNode1, hd(NewSinkNodes)),
+  rt:stop_and_wait(OldSourceNode1),
+  ?assertEqual(ok, rt:wait_until_no_pending_changes(NewSinkNodes)),
+  timer:sleep(5000),
+  check_connections(NewNodes),
+
+  rt:start(OldSourceNode1),
+  timer:sleep(3000),
+  rt:clean_cluster(SourceNodes),
+  rt:clean_cluster(SinkNodes),
+  rt:clean_cluster(SpareNodes),
+  pass;
+
+test(10) ->
+  RealtimeConnectionRebalancingDelay = 2,
+  RealtimeRemovealDelay = 0,
+  NodeWaterPolling = 1,
+  SinkClusterPolling = 1,
+  NumberOfSourceNodes = 3,
+  NumberOfSinkNodes = 3,
+  ConfVar = {RealtimeConnectionRebalancingDelay, RealtimeRemovealDelay, NodeWaterPolling, SinkClusterPolling},
+  SourceSinkSizes = {NumberOfSourceNodes, NumberOfSinkNodes},
+  Nodes = make_connected_clusters(ConfVar, SourceSinkSizes),
+  {SourceLeader, SinkLeader, SourceNodes, SinkNodes, SpareNodes} = Nodes,
+  enable_rt(SourceLeader, SourceNodes),
+  verify_rt(SourceLeader, SinkLeader),
+  check_connections(Nodes),
+
+  %% (3,3) -> (1,5)
+  SpareNode1 = lists:nth(1,SpareNodes),
+  SpareNode2 = lists:nth(2, SpareNodes),
+
+  [OldSourceNode1, OldSourceNode2 | NewSourceNodes] = SourceNodes,
+  NewSinkNodes = SinkNodes ++ [SpareNode1, SpareNode2],
+  NewSpareNodes = [],
+  NewNodes = {hd(NewSourceNodes), hd(NewSinkNodes), NewSourceNodes, NewSinkNodes, NewSpareNodes},
+
+  rt:join(SpareNode1, hd(NewSinkNodes)),
+  rt:join(SpareNode2, hd(NewSinkNodes)),
+  rt:stop_and_wait(OldSourceNode1),
+  rt:stop_and_wait(OldSourceNode2),
+  ?assertEqual(ok, rt:wait_until_no_pending_changes(NewSinkNodes)),
+  timer:sleep(5000),
+  check_connections(NewNodes),
+
+  rt:start(OldSourceNode1),
+  rt:start(OldSourceNode2),
+  timer:sleep(3000),
+  rt:clean_cluster(SourceNodes),
+  rt:clean_cluster(SinkNodes),
+  rt:clean_cluster(SpareNodes),
+  pass;
+
+test(11) ->
+  RealtimeConnectionRebalancingDelay = 2,
+  RealtimeRemovealDelay = 0,
+  NodeWaterPolling = 1,
+  SinkClusterPolling = 1,
+  NumberOfSourceNodes = 3,
+  NumberOfSinkNodes = 3,
+  ConfVar = {RealtimeConnectionRebalancingDelay, RealtimeRemovealDelay, NodeWaterPolling, SinkClusterPolling},
+  SourceSinkSizes = {NumberOfSourceNodes, NumberOfSinkNodes},
+  Nodes = make_connected_clusters(ConfVar, SourceSinkSizes),
+  {SourceLeader, SinkLeader, SourceNodes, SinkNodes, SpareNodes} = Nodes,
+  enable_rt(SourceLeader, SourceNodes),
+  verify_rt(SourceLeader, SinkLeader),
+  check_connections(Nodes),
+
+  %% (3,3) -> (2,3)
+  _SpareNode1 = lists:nth(1,SpareNodes),
+  _SpareNode2 = lists:nth(2, SpareNodes),
+
+  [OldSourceNode1| NewSourceNodes] = SourceNodes,
+  NewSinkNodes = SinkNodes,
+  NewSpareNodes = SpareNodes,
+  NewNodes = {hd(NewSourceNodes), hd(NewSinkNodes), NewSourceNodes, NewSinkNodes, NewSpareNodes},
+
+  rt:stop_and_wait(OldSourceNode1),
+  timer:sleep(5000),
+  check_connections(NewNodes),
+
+  rt:start(OldSourceNode1),
+  timer:sleep(3000),
+  rt:clean_cluster(SourceNodes),
+  rt:clean_cluster(SinkNodes),
+  rt:clean_cluster(SpareNodes),
+  pass;
+
+test(12) ->
+  RealtimeConnectionRebalancingDelay = 2,
+  RealtimeRemovealDelay = 0,
+  NodeWaterPolling = 1,
+  SinkClusterPolling = 1,
+  NumberOfSourceNodes = 3,
+  NumberOfSinkNodes = 3,
+  ConfVar = {RealtimeConnectionRebalancingDelay, RealtimeRemovealDelay, NodeWaterPolling, SinkClusterPolling},
+  SourceSinkSizes = {NumberOfSourceNodes, NumberOfSinkNodes},
+  Nodes = make_connected_clusters(ConfVar, SourceSinkSizes),
+  {SourceLeader, SinkLeader, SourceNodes, SinkNodes, SpareNodes} = Nodes,
+  enable_rt(SourceLeader, SourceNodes),
+  verify_rt(SourceLeader, SinkLeader),
+  check_connections(Nodes),
+
+  %% (3,3) -> (1,3)
+  _SpareNode1 = lists:nth(1,SpareNodes),
+  _SpareNode2 = lists:nth(2, SpareNodes),
+
+  [OldSourceNode1, OldSourceNode2| NewSourceNodes] = SourceNodes,
+  NewSinkNodes = SinkNodes,
+  NewSpareNodes = SpareNodes,
+  NewNodes = {hd(NewSourceNodes), hd(NewSinkNodes), NewSourceNodes, NewSinkNodes, NewSpareNodes},
+
+
+  rt:stop_and_wait(OldSourceNode1),
+  rt:stop_and_wait(OldSourceNode2),
+  timer:sleep(5000),
+  check_connections(NewNodes),
+
+  rt:start(OldSourceNode1),
+  rt:start(OldSourceNode2),
+  timer:sleep(3000),
+  rt:clean_cluster(SourceNodes),
+  rt:clean_cluster(SinkNodes),
+  rt:clean_cluster(SpareNodes),
+  pass;
+
+test(13) ->
+  RealtimeConnectionRebalancingDelay = 2,
+  RealtimeRemovealDelay = 0,
+  NodeWaterPolling = 1,
+  SinkClusterPolling = 1,
+  NumberOfSourceNodes = 3,
+  NumberOfSinkNodes = 3,
+  ConfVar = {RealtimeConnectionRebalancingDelay, RealtimeRemovealDelay, NodeWaterPolling, SinkClusterPolling},
+  SourceSinkSizes = {NumberOfSourceNodes, NumberOfSinkNodes},
+  Nodes = make_connected_clusters(ConfVar, SourceSinkSizes),
+  {SourceLeader, SinkLeader, SourceNodes, SinkNodes, SpareNodes} = Nodes,
+  enable_rt(SourceLeader, SourceNodes),
+  verify_rt(SourceLeader, SinkLeader),
+  check_connections(Nodes),
+
+  %% (3,3) -> (2,2)
+  _SpareNode1 = lists:nth(1,SpareNodes),
+  _SpareNode2 = lists:nth(2, SpareNodes),
+
+  [OldSourceNode1| NewSourceNodes] = SourceNodes,
+  [OldSinkNode1 | NewSinkNodes] = SinkNodes,
+  NewSpareNodes = SpareNodes,
+  NewNodes = {hd(NewSourceNodes), hd(NewSinkNodes), NewSourceNodes, NewSinkNodes, NewSpareNodes},
+
+
+  rt:stop_and_wait(OldSourceNode1),
+  rt:stop_and_wait(OldSinkNode1),
+  timer:sleep(5000),
+  check_connections(NewNodes),
+
+  rt:start(OldSourceNode1),
+  rt:start(OldSinkNode1),
+  timer:sleep(3000),
+  rt:clean_cluster(SourceNodes),
+  rt:clean_cluster(SinkNodes),
+  rt:clean_cluster(SpareNodes),
+  pass;
+
+test(14) ->
+  RealtimeConnectionRebalancingDelay = 2,
+  RealtimeRemovealDelay = 0,
+  NodeWaterPolling = 1,
+  SinkClusterPolling = 1,
+  NumberOfSourceNodes = 3,
+  NumberOfSinkNodes = 3,
+  ConfVar = {RealtimeConnectionRebalancingDelay, RealtimeRemovealDelay, NodeWaterPolling, SinkClusterPolling},
+  SourceSinkSizes = {NumberOfSourceNodes, NumberOfSinkNodes},
+  Nodes = make_connected_clusters(ConfVar, SourceSinkSizes),
+  {SourceLeader, SinkLeader, SourceNodes, SinkNodes, SpareNodes} = Nodes,
+  enable_rt(SourceLeader, SourceNodes),
+  verify_rt(SourceLeader, SinkLeader),
+  check_connections(Nodes),
+
+  %% (3,3) -> (2,1)
+  _SpareNode1 = lists:nth(1,SpareNodes),
+  _SpareNode2 = lists:nth(2, SpareNodes),
+
+  [OldSourceNode1| NewSourceNodes] = SourceNodes,
+  [OldSinkNode1, OldSinkNode2 | NewSinkNodes] = SinkNodes,
+  NewSpareNodes = SpareNodes,
+  NewNodes = {hd(NewSourceNodes), hd(NewSinkNodes), NewSourceNodes, NewSinkNodes, NewSpareNodes},
+
+
+  rt:stop_and_wait(OldSourceNode1),
+  rt:stop_and_wait(OldSinkNode1),
+  rt:stop_and_wait(OldSinkNode2),
+  timer:sleep(7000),
+  check_connections(NewNodes),
+
+  rt:start(OldSourceNode1),
+  rt:start(OldSinkNode1),
+  rt:start(OldSinkNode2),
+  timer:sleep(3000),
+  rt:clean_cluster(SourceNodes),
+  rt:clean_cluster(SinkNodes),
+  rt:clean_cluster(SpareNodes),
+  pass;
+
+test(15) ->
+  RealtimeConnectionRebalancingDelay = 2,
+  RealtimeRemovealDelay = 0,
+  NodeWaterPolling = 1,
+  SinkClusterPolling = 1,
+  NumberOfSourceNodes = 3,
+  NumberOfSinkNodes = 3,
+  ConfVar = {RealtimeConnectionRebalancingDelay, RealtimeRemovealDelay, NodeWaterPolling, SinkClusterPolling},
+  SourceSinkSizes = {NumberOfSourceNodes, NumberOfSinkNodes},
+  Nodes = make_connected_clusters(ConfVar, SourceSinkSizes),
+  {SourceLeader, SinkLeader, SourceNodes, SinkNodes, SpareNodes} = Nodes,
+  enable_rt(SourceLeader, SourceNodes),
+  verify_rt(SourceLeader, SinkLeader),
+  check_connections(Nodes),
+
+  %% (3,3) -> (1,2)
+  _SpareNode1 = lists:nth(1,SpareNodes),
+  _SpareNode2 = lists:nth(2, SpareNodes),
+
+  [OldSourceNode1, OldSourceNode2| NewSourceNodes] = SourceNodes,
+  [OldSinkNode1 | NewSinkNodes] = SinkNodes,
+  NewSpareNodes = SpareNodes,
+  NewNodes = {hd(NewSourceNodes), hd(NewSinkNodes), NewSourceNodes, NewSinkNodes, NewSpareNodes},
+
+
+  rt:stop_and_wait(OldSourceNode1),
+  rt:stop_and_wait(OldSourceNode2),
+  rt:stop_and_wait(OldSinkNode1),
+  timer:sleep(5000),
+  check_connections(NewNodes),
+
+  rt:start(OldSourceNode1),
+  rt:start(OldSourceNode2),
+  rt:start(OldSinkNode1),
+  timer:sleep(3000),
+  rt:clean_cluster(SourceNodes),
+  rt:clean_cluster(SinkNodes),
+  rt:clean_cluster(SpareNodes),
+  pass;
+
+test(16) ->
+  RealtimeConnectionRebalancingDelay = 2,
+  RealtimeRemovealDelay = 0,
+  NodeWaterPolling = 1,
+  SinkClusterPolling = 1,
+  NumberOfSourceNodes = 3,
+  NumberOfSinkNodes = 3,
+  ConfVar = {RealtimeConnectionRebalancingDelay, RealtimeRemovealDelay, NodeWaterPolling, SinkClusterPolling},
+  SourceSinkSizes = {NumberOfSourceNodes, NumberOfSinkNodes},
+  Nodes = make_connected_clusters(ConfVar, SourceSinkSizes),
+  {SourceLeader, SinkLeader, SourceNodes, SinkNodes, SpareNodes} = Nodes,
+  enable_rt(SourceLeader, SourceNodes),
+  verify_rt(SourceLeader, SinkLeader),
+  check_connections(Nodes),
+
+  %% (3,3) -> (3,4)
+  SpareNode1 = lists:nth(1,SpareNodes),
+  _SpareNode2 = lists:nth(2, SpareNodes),
+
+  NewSourceNodes = SourceNodes,
+  NewSinkNodes = SinkNodes ++ [SpareNode1],
+  NewSpareNodes = SpareNodes,
+  NewNodes = {hd(NewSourceNodes), hd(NewSinkNodes), NewSourceNodes, NewSinkNodes, NewSpareNodes},
+
+  rt:join(SpareNode1, hd(NewSinkNodes)),
+  ?assertEqual(ok, rt:wait_until_no_pending_changes(NewSinkNodes)),
+  timer:sleep(5000),
+  check_connections(NewNodes),
+
+  rt:clean_cluster(SourceNodes),
+  rt:clean_cluster(SinkNodes),
+  rt:clean_cluster(SpareNodes),
+  pass;
+
+test(17) ->
+  RealtimeConnectionRebalancingDelay = 2,
+  RealtimeRemovealDelay = 0,
+  NodeWaterPolling = 1,
+  SinkClusterPolling = 1,
+  NumberOfSourceNodes = 3,
+  NumberOfSinkNodes = 3,
+  ConfVar = {RealtimeConnectionRebalancingDelay, RealtimeRemovealDelay, NodeWaterPolling, SinkClusterPolling},
+  SourceSinkSizes = {NumberOfSourceNodes, NumberOfSinkNodes},
+  Nodes = make_connected_clusters(ConfVar, SourceSinkSizes),
+  {SourceLeader, SinkLeader, SourceNodes, SinkNodes, SpareNodes} = Nodes,
+  enable_rt(SourceLeader, SourceNodes),
+  verify_rt(SourceLeader, SinkLeader),
+  check_connections(Nodes),
+
+  %% (3,3) -> (3,5)
+  SpareNode1 = lists:nth(1,SpareNodes),
+  SpareNode2 = lists:nth(2, SpareNodes),
+
+  NewSourceNodes = SourceNodes,
+  NewSinkNodes = SinkNodes ++ [SpareNode1, SpareNode2],
+  NewSpareNodes = SpareNodes,
+  NewNodes = {hd(NewSourceNodes), hd(NewSinkNodes), NewSourceNodes, NewSinkNodes, NewSpareNodes},
+
+  rt:join(SpareNode1, hd(NewSinkNodes)),
+  rt:join(SpareNode2, hd(NewSinkNodes)),
+  ?assertEqual(ok, rt:wait_until_no_pending_changes(NewSinkNodes)),
+  timer:sleep(5000),
+  check_connections(NewNodes),
+
+  rt:clean_cluster(SourceNodes),
+  rt:clean_cluster(SinkNodes),
+  rt:clean_cluster(SpareNodes),
+  pass;
+
+test(18) ->
+  RealtimeConnectionRebalancingDelay = 2,
+  RealtimeRemovealDelay = 0,
+  NodeWaterPolling = 1,
+  SinkClusterPolling = 1,
+  NumberOfSourceNodes = 3,
+  NumberOfSinkNodes = 3,
+  ConfVar = {RealtimeConnectionRebalancingDelay, RealtimeRemovealDelay, NodeWaterPolling, SinkClusterPolling},
+  SourceSinkSizes = {NumberOfSourceNodes, NumberOfSinkNodes},
+  Nodes = make_connected_clusters(ConfVar, SourceSinkSizes),
+  {SourceLeader, SinkLeader, SourceNodes, SinkNodes, SpareNodes} = Nodes,
+  enable_rt(SourceLeader, SourceNodes),
+  verify_rt(SourceLeader, SinkLeader),
+  check_connections(Nodes),
+
+  %% (3,3) -> (3,2)
+  _SpareNode1 = lists:nth(1,SpareNodes),
+  _SpareNode2 = lists:nth(2, SpareNodes),
+
+  NewSourceNodes = SourceNodes,
+  [OldSinkNode1 | NewSinkNodes] = SinkNodes,
+  NewSpareNodes = SpareNodes,
+  NewNodes = {hd(NewSourceNodes), hd(NewSinkNodes), NewSourceNodes, NewSinkNodes, NewSpareNodes},
+
+  rt:stop_and_wait(OldSinkNode1),
+  timer:sleep(5000),
+  check_connections(NewNodes),
+
+  rt:start(OldSinkNode1),
+  timer:sleep(3000),
+  rt:clean_cluster(SourceNodes),
+  rt:clean_cluster(SinkNodes),
+  rt:clean_cluster(SpareNodes),
+  pass;
+
+test(19) ->
+  RealtimeConnectionRebalancingDelay = 2,
+  RealtimeRemovealDelay = 0,
+  NodeWaterPolling = 1,
+  SinkClusterPolling = 1,
+  NumberOfSourceNodes = 3,
+  NumberOfSinkNodes = 3,
+  ConfVar = {RealtimeConnectionRebalancingDelay, RealtimeRemovealDelay, NodeWaterPolling, SinkClusterPolling},
+  SourceSinkSizes = {NumberOfSourceNodes, NumberOfSinkNodes},
+  Nodes = make_connected_clusters(ConfVar, SourceSinkSizes),
+  {SourceLeader, SinkLeader, SourceNodes, SinkNodes, SpareNodes} = Nodes,
+  enable_rt(SourceLeader, SourceNodes),
+  verify_rt(SourceLeader, SinkLeader),
+  check_connections(Nodes),
+
+  %% (3,3) -> (3,1)
+  _SpareNode1 = lists:nth(1,SpareNodes),
+  _SpareNode2 = lists:nth(2, SpareNodes),
+
+  NewSourceNodes = SourceNodes,
+    [OldSinkNode1, OldSinkNode2| NewSinkNodes] = SinkNodes,
+  NewSpareNodes = SpareNodes,
+  NewNodes = {hd(NewSourceNodes), hd(NewSinkNodes), NewSourceNodes, NewSinkNodes, NewSpareNodes},
+
+  rt:stop_and_wait(OldSinkNode1),
+  rt:stop_and_wait(OldSinkNode2),
+  timer:sleep(5000),
+  check_connections(NewNodes),
+
+  rt:start(OldSinkNode1),
+  rt:start(OldSinkNode2),
+  timer:sleep(3000),
+  rt:clean_cluster(SourceNodes),
+  rt:clean_cluster(SinkNodes),
+  rt:clean_cluster(SpareNodes),
+  pass;
+
+test(exit_error_data_mgr_leader) ->
+  RealtimeConnectionRebalancingDelay = 2,
+  RealtimeRemovealDelay = 0,
+  NodeWaterPolling = 1,
+  SinkClusterPolling = 1,
+  NumberOfSourceNodes = 3,
+  NumberOfSinkNodes = 3,
+  ConfVar = {RealtimeConnectionRebalancingDelay, RealtimeRemovealDelay, NodeWaterPolling, SinkClusterPolling},
+  SourceSinkSizes = {NumberOfSourceNodes, NumberOfSinkNodes},
+  Nodes = make_connected_clusters(ConfVar, SourceSinkSizes),
+  {SourceLeader, SinkLeader, SourceNodes, SinkNodes, SpareNodes} = Nodes,
+  enable_rt(SourceLeader, SourceNodes),
+  verify_rt(SourceLeader, SinkLeader),
+  check_connections(Nodes),
+
+  %% kill data manager on leader
+  Pid = rpc:call(SourceLeader, erlang, whereis, [riak_repl2_rtsource_conn_data_mgr]),
+  lager:info("PID: ~p", [Pid]),
+  Exit = rpc:call(SourceLeader, erlang, exit, [Pid, error]),
+  lager:info("EXIT CALL: ~p", [Exit]),
+
+  timer:sleep(15000),
+  check_connections(Nodes),
+
+  timer:sleep(3000),
+  rt:clean_cluster(SourceNodes),
+  rt:clean_cluster(SinkNodes),
+  rt:clean_cluster(SpareNodes),
+  pass;
+
+test(exit_error_data_mgr_not_leader) ->
+  RealtimeConnectionRebalancingDelay = 2,
+  RealtimeRemovealDelay = 0,
+  NodeWaterPolling = 1,
+  SinkClusterPolling = 1,
+  NumberOfSourceNodes = 3,
+  NumberOfSinkNodes = 3,
+  ConfVar = {RealtimeConnectionRebalancingDelay, RealtimeRemovealDelay, NodeWaterPolling, SinkClusterPolling},
+  SourceSinkSizes = {NumberOfSourceNodes, NumberOfSinkNodes},
+  Nodes = make_connected_clusters(ConfVar, SourceSinkSizes),
+  {SourceLeader, SinkLeader, SourceNodes, SinkNodes, SpareNodes} = Nodes,
+  enable_rt(SourceLeader, SourceNodes),
+  verify_rt(SourceLeader, SinkLeader),
+  check_connections(Nodes),
+
+  [_X, Y | _Rest] = SourceNodes,
+
+  %% kill data manager not on leader
+  Pid = rpc:call(Y, erlang, whereis, [riak_repl2_rtsource_conn_data_mgr]),
+  lager:info("PID: ~p", [Pid]),
+  Exit = rpc:call(Y, erlang, exit, [Pid, error]),
+  lager:info("EXIT CALL: ~p", [Exit]),
+
+  timer:sleep(10000),
+  check_connections(Nodes),
+
+  timer:sleep(3000),
+  rt:clean_cluster(SourceNodes),
+  rt:clean_cluster(SinkNodes),
+  rt:clean_cluster(SpareNodes),
+  pass;
+
+test(exit_error_conn_mgr_not_leader) ->
+  RealtimeConnectionRebalancingDelay = 2,
+  RealtimeRemovealDelay = 0,
+  NodeWaterPolling = 1,
+  SinkClusterPolling = 1,
+  NumberOfSourceNodes = 3,
+  NumberOfSinkNodes = 3,
+  ConfVar = {RealtimeConnectionRebalancingDelay, RealtimeRemovealDelay, NodeWaterPolling, SinkClusterPolling},
+  SourceSinkSizes = {NumberOfSourceNodes, NumberOfSinkNodes},
+  Nodes = make_connected_clusters(ConfVar, SourceSinkSizes),
+  {SourceLeader, SinkLeader, SourceNodes, SinkNodes, SpareNodes} = Nodes,
+  enable_rt(SourceLeader, SourceNodes),
+  verify_rt(SourceLeader, SinkLeader),
+  check_connections(Nodes),
+
+  [_X, Y | _Rest] = SourceNodes,
+
+  %% kill conn mgr not on leader
+  [{"B",Pid}] = rpc:call(Y, riak_repl2_rtsource_conn_sup, enabled, []),
+  lager:info("PID: ~p", [Pid]),
+  Exit = rpc:call(Y, erlang, exit, [Pid, error]),
+  lager:info("EXIT CALL: ~p", [Exit]),
+
+  timer:sleep(10000),
+  check_connections(Nodes),
+
+  timer:sleep(3000),
+  rt:clean_cluster(SourceNodes),
+  rt:clean_cluster(SinkNodes),
+  rt:clean_cluster(SpareNodes),
+  pass;
+
+test(exit_error_conn_mgr_leader) ->
+  RealtimeConnectionRebalancingDelay = 2,
+  RealtimeRemovealDelay = 0,
+  NodeWaterPolling = 1,
+  SinkClusterPolling = 1,
+  NumberOfSourceNodes = 3,
+  NumberOfSinkNodes = 3,
+  ConfVar = {RealtimeConnectionRebalancingDelay, RealtimeRemovealDelay, NodeWaterPolling, SinkClusterPolling},
+  SourceSinkSizes = {NumberOfSourceNodes, NumberOfSinkNodes},
+  Nodes = make_connected_clusters(ConfVar, SourceSinkSizes),
+  {SourceLeader, SinkLeader, SourceNodes, SinkNodes, SpareNodes} = Nodes,
+  enable_rt(SourceLeader, SourceNodes),
+  verify_rt(SourceLeader, SinkLeader),
+  check_connections(Nodes),
+
+  %% kill conn mgr on leader
+  [{"B",Pid}] = rpc:call(SourceLeader, riak_repl2_rtsource_conn_sup, enabled, []),
+  lager:info("PID: ~p", [Pid]),
+  Exit = rpc:call(SourceLeader, erlang, exit, [Pid, error]),
+  lager:info("EXIT CALL: ~p", [Exit]),
+
+  timer:sleep(10000),
+  check_connections(Nodes),
+
+  timer:sleep(3000),
+  rt:clean_cluster(SourceNodes),
+  rt:clean_cluster(SinkNodes),
+  rt:clean_cluster(SpareNodes),
+  pass;
+
+test(exit_error_rtsource_conn_not_leader) ->
+  RealtimeConnectionRebalancingDelay = 2,
+  RealtimeRemovealDelay = 0,
+  NodeWaterPolling = 1,
+  SinkClusterPolling = 1,
+  NumberOfSourceNodes = 3,
+  NumberOfSinkNodes = 3,
+  ConfVar = {RealtimeConnectionRebalancingDelay, RealtimeRemovealDelay, NodeWaterPolling, SinkClusterPolling},
+  SourceSinkSizes = {NumberOfSourceNodes, NumberOfSinkNodes},
+  Nodes = make_connected_clusters(ConfVar, SourceSinkSizes),
+  {SourceLeader, SinkLeader, SourceNodes, SinkNodes, SpareNodes} = Nodes,
+  enable_rt(SourceLeader, SourceNodes),
+  verify_rt(SourceLeader, SinkLeader),
+  check_connections(Nodes),
+
+  [_X, Y | _Rest] = SourceNodes,
+
+  %% kill rtsource conn not on leader
+  [{"B",ConnMgrPid}] = rpc:call(Y, riak_repl2_rtsource_conn_sup, enabled, []),
+  [Pid] = rpc:call(Y, riak_repl2_rtsource_conn_mgr, get_rtsource_conn_pids, [ConnMgrPid]),
+  lager:info("PID: ~p", [Pid]),
+  Exit = rpc:call(Y, erlang, exit, [Pid, error]),
+  lager:info("EXIT CALL: ~p", [Exit]),
+
+  timer:sleep(10000),
+  check_connections(Nodes),
+
+  timer:sleep(3000),
+  rt:clean_cluster(SourceNodes),
+  rt:clean_cluster(SinkNodes),
+  rt:clean_cluster(SpareNodes),
+  pass;
+
+test(exit_error_rtsource_conn_leader) ->
+  RealtimeConnectionRebalancingDelay = 2,
+  RealtimeRemovealDelay = 0,
+  NodeWaterPolling = 1,
+  SinkClusterPolling = 1,
+  NumberOfSourceNodes = 3,
+  NumberOfSinkNodes = 3,
+  ConfVar = {RealtimeConnectionRebalancingDelay, RealtimeRemovealDelay, NodeWaterPolling, SinkClusterPolling},
+  SourceSinkSizes = {NumberOfSourceNodes, NumberOfSinkNodes},
+  Nodes = make_connected_clusters(ConfVar, SourceSinkSizes),
+  {SourceLeader, SinkLeader, SourceNodes, SinkNodes, SpareNodes} = Nodes,
+  enable_rt(SourceLeader, SourceNodes),
+  verify_rt(SourceLeader, SinkLeader),
+  check_connections(Nodes),
+
+  %% kill rtsource conn on  leader
+  [{"B",ConnMgrPid}] = rpc:call(SourceLeader, riak_repl2_rtsource_conn_sup, enabled, []),
+  [Pid] = rpc:call(SourceLeader, riak_repl2_rtsource_conn_mgr, get_rtsource_conn_pids, [ConnMgrPid]),
+  lager:info("PID: ~p", [Pid]),
+  Exit = rpc:call(SourceLeader, erlang, exit, [Pid, error]),
+  lager:info("EXIT CALL: ~p", [Exit]),
+
+  timer:sleep(10000),
+  check_connections(Nodes),
+
+  timer:sleep(3000),
+  rt:clean_cluster(SourceNodes),
+  rt:clean_cluster(SinkNodes),
+  rt:clean_cluster(SpareNodes),
   pass.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %                                         Riak Test Functions                                                          %
@@ -488,8 +1143,9 @@ build_realtime_connections_from_rtsource_conn(SourceNodes) ->
 build_realtime_connections_from_rtsource_conn_helper([], Dict) ->
   Dict;
 build_realtime_connections_from_rtsource_conn_helper([SourceNode| Rest], Dict) ->
-  ConnsList = [ rpc:call(SourceNode, riak_repl2_rtsource_conn, get_address, [Pid]) ||
-    {_,Pid,_,_} <- rpc:call(SourceNode, supervisor, which_children, [riak_repl2_rtsource_conn_2_sup_B])],
+  [{"B",ConnMgrPid}] = rpc:call(SourceNode, riak_repl2_rtsource_conn_sup, enabled, []),
+  RtSourceConnPids = rpc:call(SourceNode, riak_repl2_rtsource_conn_mgr, get_rtsource_conn_pids, [ConnMgrPid]),
+  ConnsList = [ rpc:call(SourceNode, riak_repl2_rtsource_conn, get_address, [Pid]) || Pid <- RtSourceConnPids],
   NewDict = dict:store(SourceNode, ConnsList, Dict),
   build_realtime_connections_from_conn_mgr_helper(Rest, NewDict).
 
@@ -527,9 +1183,10 @@ build_dict_with_rtsink_peernames([Pid|Rest], Sink, Key, Dict) ->
 build_rtsource_dictionary([], Dict) ->
   Dict;
 build_rtsource_dictionary([SourceNode| Rest], Dict) ->
+  [{"B",ConnMgrPid}] = rpc:call(SourceNode, riak_repl2_rtsource_conn_sup, enabled, []),
   PeernamePrimary = [
     rpc:call(SourceNode, riak_repl2_rtsource_conn, get_socketname_primary, [Pid]) ||
-    {_,Pid,_,_} <- rpc:call(SourceNode, supervisor, which_children, [riak_repl2_rtsource_conn_2_sup_B])],
+    Pid <- rpc:call(SourceNode, riak_repl2_rtsource_conn_mgr, get_rtsource_conn_pids, [ConnMgrPid])],
   build_rtsource_dictionary(Rest, build_dict_with_rtsource_node_names(PeernamePrimary, SourceNode, Dict)).
 
 build_dict_with_rtsource_node_names([], _, Dict) ->
