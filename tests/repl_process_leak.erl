@@ -109,7 +109,8 @@ send_source_tcp_errors(SourceNode, N, Acc) ->
             timer:sleep(?SEND_ERROR_INTERVAL),
             send_source_tcp_errors(SourceNode, N, Acc);
         ConnMgrPid ->
-            [{_,RtSourcePid}] = rpc:call(SourceNode, riak_repl2_rtsource_conn_mgr, get_endpoints, [ConnMgrPid]),
+            Dict = rpc:call(SourceNode, riak_repl2_rtsource_conn_mgr, get_endpoints, [ConnMgrPid]),
+            [{_,RtSourcePid}] = dict:to_list(Dict),
             HelperPid = rpc:call(SourceNode, riak_repl2_rtsource_conn, get_helper_pid, [RtSourcePid]),
             lager:debug("N ~p    rtsource pid ~p", [N, RtSourcePid]),
             lager:debug("N ~p    rtsource helper pid ~p", [N, HelperPid]),

@@ -847,11 +847,24 @@ test(exit_error_rtsource_conn_not_leader) ->
   timer:sleep(10000),
   check_connections(Nodes),
 
+  [Pid2] = rpc:call(Y, riak_repl2_rtsource_conn_mgr, get_rtsource_conn_pids, [ConnMgrPid]),
+  ?assertNotEqual(Pid, Pid2),
+  Result = try rpc:call(Y, sys, get_state, [Pid]) of
+             {badrpc,{'EXIT',{noproc,{sys,get_state,[Pid]}}}} ->
+               pass;
+             State ->
+               lager:info("PID IS STILL ACTIVE -> State: ~p", [State]),
+               fail
+           catch
+             _Type:_Error ->
+               pass
+           end,
+
   timer:sleep(3000),
   rt:clean_cluster(SourceNodes),
   rt:clean_cluster(SinkNodes),
   rt:clean_cluster(SpareNodes),
-  pass;
+  Result;
 
 test(exit_error_rtsource_conn_leader) ->
   RealtimeConnectionRebalancingDelay = 2,
@@ -878,11 +891,25 @@ test(exit_error_rtsource_conn_leader) ->
   timer:sleep(10000),
   check_connections(Nodes),
 
+  [Pid2] = rpc:call(SourceLeader, riak_repl2_rtsource_conn_mgr, get_rtsource_conn_pids, [ConnMgrPid]),
+  ?assertNotEqual(Pid, Pid2),
+
+  Result = try rpc:call(SourceLeader, sys, get_state, [Pid]) of
+             {badrpc,{'EXIT',{noproc,{sys,get_state,[Pid]}}}} ->
+               pass;
+            State ->
+              lager:info("PID IS STILL ACTIVE -> State: ~p", [State]),
+              fail
+          catch
+            _Type:_Error ->
+              pass
+          end,
+
   timer:sleep(3000),
   rt:clean_cluster(SourceNodes),
   rt:clean_cluster(SinkNodes),
   rt:clean_cluster(SpareNodes),
-  pass.
+  Result.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %                                         Riak Test Functions                                                          %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
