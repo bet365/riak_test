@@ -13,7 +13,7 @@ confirm() ->
   %% run the most necessary tests
 %%  [ run_test(N) || N <- [1,2,3,4,5,7,9,11,13,16,18]],
 
-  %% run a specific test
+  %% run a specific tests
   run_test(exit_error_data_mgr_not_leader),
   run_test(exit_error_data_mgr_leader),
   run_test(exit_error_conn_mgr_not_leader),
