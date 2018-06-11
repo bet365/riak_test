@@ -271,20 +271,11 @@ verify_heartbeat_messages(Node) ->
     lager:info("Verify heartbeats"),
     Pid = get_rt_source_conn_mgr_pid(Node),
     StatusList = rpc:call(Node, riak_repl2_rtsource_conn_mgr, get_all_status, [Pid], ?RPC_TIMEOUT),
-    Status = first_or_empty(StatusList),
-    lager:info("Status of rtsource conn: ~p", [Status]),
-    HBRTT = proplists:get_value(hb_rtt, Status),
+    lager:info("Status of rtsource conn: ~p", [StatusList]),
+    HBRTT = proplists:get_value(hb_rtt, StatusList),
     case HBRTT of
         undefined ->
             false;
         RTT ->
             is_integer(RTT)
-    end.
-
-first_or_empty(L) ->
-    case L of
-        [] ->
-            [];
-        X ->
-            lists:nth(1,X)
     end.

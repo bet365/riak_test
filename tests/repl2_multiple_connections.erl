@@ -8,7 +8,7 @@
 
 confirm() ->
   %% run all tests
-  [ run_test(N) || N <- lists:seq(1,19)],
+%%  [ run_test(N) || N <- lists:seq(3,19)],
 
   %% run the most necessary tests
 %%  [ run_test(N) || N <- [1,2,3,4,5,7,9,11,13,16,18]],
@@ -503,7 +503,7 @@ test(14) ->
   rt:stop_and_wait(OldSourceNode1),
   rt:stop_and_wait(OldSinkNode1),
   rt:stop_and_wait(OldSinkNode2),
-  timer:sleep(7000),
+  timer:sleep(5000),
   check_connections(NewNodes),
 
   rt:start(OldSourceNode1),
@@ -717,7 +717,7 @@ test(exit_error_data_mgr_leader) ->
   Exit = rpc:call(SourceLeader, erlang, exit, [Pid, error]),
   lager:info("EXIT CALL: ~p", [Exit]),
 
-  timer:sleep(15000),
+  timer:sleep(10000),
   check_connections(Nodes),
 
   timer:sleep(3000),
@@ -1029,7 +1029,7 @@ check_connections({SourceLeader, _SinkLeader, SourceNodes, SinkNodes, _SpareNode
   SortedConnMgrRTC = dict_to_sorted_list(ConnMgrRealtimeConnections),
   SortedRtSourceRTC = dict_to_sorted_list(RtSourceConnRealtimeConnections),
 
-  lager:info("sorted realtime connection (data):     ~p", [SortedDataMgrRTC]),
+  lager:info("sorted realtime connection (data_mgr):     ~p", [SortedDataMgrRTC]),
   lager:info("sorted realtime connection (conn_mgr): ~p", [SortedConnMgrRTC]),
   lager:info("sorted realtime connection (rtsource): ~p", [SortedRtSourceRTC]),
   lager:info("(actual) connection count: ~p", [ActualSourceConnectionCounts]),
@@ -1051,8 +1051,8 @@ check_connections({SourceLeader, _SinkLeader, SourceNodes, SinkNodes, _SpareNode
   ExpectedSinkConnectionCounts = lists:sort(build_expected_primary_connection_counts(for_sink_nodes, SourceNodes, SinkNodes)),
 
 
-  lager:info("inverted realtime connections (data) ~p", [InvertedDataMgrRealtimeConnections]),
-  lager:info("inverted realtime connections (conns) ~p", [InvertedRtSinkRealtimeConnections]),
+  lager:info("inverted realtime connections (data_mgr) ~p", [InvertedDataMgrRealtimeConnections]),
+  lager:info("inverted realtime connections (conn_mgr) ~p", [InvertedRtSinkRealtimeConnections]),
   lager:info("(actual) sink connection count ~p", [ActualSinkConnectionCounts]),
   lager:info("(expected) sink connection count ~p", [ExpectedSinkConnectionCounts]),
 
