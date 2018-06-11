@@ -1,17 +1,15 @@
 -module(repl2_multiple_connections).
 -behaviour(riak_test).
--export([
-  confirm/0
-]).
+-export([confirm/0]).
 -include_lib("eunit/include/eunit.hrl").
 
 
 confirm() ->
   %% run all tests
-%%  [ run_test(N) || N <- lists:seq(3,19)],
+%%  [ run_test(N) || N <- lists:seq(1,19)],
 
   %% run the most necessary tests
-%%  [ run_test(N) || N <- [1,2,3,4,5,7,9,11,13,16,18]],
+  [ run_test(N) || N <- [1,2,3,4,5,7,9,11,13,16,18]],
 
   %% run a specific tests
   run_test(exit_error_data_mgr_not_leader),
