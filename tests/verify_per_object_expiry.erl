@@ -6,17 +6,22 @@
 -define(BUCKET, <<"Bucket">>).
 -define(KEY(N), list_to_binary("Key-"++ integer_to_list(N))).
 -define(VALUE(N), list_to_binary("Value-"++ integer_to_list(N))).
+-define(REGNAME, riak_bitcask_test_verify_per_object_expiry).
 
 
 confirm() ->
 
+    register(?REGNAME, self()),
+
     Results =
         [
-            test_expiration(),
-            test_aae_exchange()
+            test_expiration()
+%%            test_aae_exchange()
         ],
     _ = [begin io:format("Test name: ~p, Result: ~p", [TestName, Result]), ?assertEqual(Result, pass) end ||
         {TestName, Result} <- lists:flatten(Results)],
+
+    unregister(?REGNAME),
     pass.
 
 
@@ -32,37 +37,33 @@ test_expiration() ->
     rt:clean_cluster(Cluster),
     Results.
 
-test_aae_exchange() ->
-    {N, W, DW, R} = {3,1,1,3},
-    Cluster = make_cluster({N, W, DW, R}),
-
-    Results =
-        [
-
-        ],
-
-    rt:clean_cluster(Cluster),
-    Results.
+%%test_aae_exchange() ->
+%%    {N, W, DW, R} = {3,1,1,3},
+%%    Cluster = make_cluster({N, W, DW, R}),
+%%
+%%    Results =
+%%        [
+%%
+%%        ],
+%%
+%%    rt:clean_cluster(Cluster),
+%%    Results.
 
 
 
 test_none_expired_object(Cluster) ->
     ok = put_object(Cluster, 1, 1),
-    application:set_env(riak_kv, delete_mode, {backend_reap, 20}),
-    ok = delete_object(Cluster, 2, 1),
-    timer:sleep(5000),
+    ok = put_object(Cluster, 1, 2),
+    set_backend_reap_expiry(Cluster, 500000),
+    set_bit_cask_max_file_size(Cluster, 10240),
+    ok = delete_object(Cluster, 2, 2),
 
-    Index = responsible_index(1),
-    ct:pal("responseible index works: ~p", [Index]),
+    Index = responsible_index(hd(Cluster), 1),
+    lager:info("responseible index works: ~p", [Index]),
 
-    bitcask_get_all_nodes(Cluster, 1),
-
-    % should get tombstone back?
-    {error, notfound} = get_object(Cluster, 1, 1).
-
-
-
-
+    direct_kv_vnode_get_request(Cluster, 1),
+    direct_kv_vnode_get_request(Cluster, 2),
+    ?assertEqual(true, false).
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -77,24 +78,10 @@ make_cluster({N, W, DW, R}) ->
                 {ring_creation_size, 64},
                 {default_bucket_props, [{n_val, N}, {w,W}, {dw,DW}, {r,R}, {allow_mult, false}]}
             ]
-        },
-        {riak_repl,
-            [
-                {fullsync_strategy, keylist},
-                {fullsync_on_connect, false},
-                {fullsync_interval, disabled},
-                {max_fssource_retries, infinity},
-                {max_fssource_cluster, 20},
-                {max_fssource_node, 20},
-                {max_fssink_node, 20}
-            ]}],
-    Nodes = rt:deploy_nodes(8, Conf, [riak_kv, riak_repl]),
-    CheckSize = 8,
-    ?assertEqual(true, CheckSize),
+        }],
+    Nodes = rt:deploy_nodes(8, Conf, [riak_kv]),
     lager:info("Build cluster A"),
     repl_util:make_cluster(Nodes),
-    rt:wait_for_service(Nodes, riak_kv),
-    rt:wait_for_service(Nodes, riak_pipe),
     Nodes.
 
 
@@ -113,35 +100,50 @@ delete_object(Cluster, NodeNumber, ObjectNumber) ->
     C:delete(?BUCKET, ?KEY(ObjectNumber)).
 
 %% {ok, Obj} OR {error, notfound}
-get_object(Cluster, NodeNumber, ObjectNumber) ->
-    Node = lists:nth(NodeNumber, Cluster),
-    {ok, C} = riak:client_connect(Node),
-    C:get(?BUCKET, ?KEY(ObjectNumber)).
+%%get_object(Cluster, NodeNumber, ObjectNumber) ->
+%%    Node = lists:nth(NodeNumber, Cluster),
+%%    {ok, C} = riak:client_connect(Node),
+%%    C:get(?BUCKET, ?KEY(ObjectNumber)).
 
-bucket_key_hash(KeyN) ->
-    riak_core_util:chash_key({?BUCKET, ?KEY(KeyN)}).
+bucket_key_hash(Node, KeyN) ->
+    rpc:call(Node, riak_core_util, chash_key, [{?BUCKET, ?KEY(KeyN)}]).
 
-responsible_index(KeyN) ->
-    {ok, Ring} = riak_core_ring_manager:get_my_ring(),
-    riak_core_ring:responsible_index(bucket_key_hash(KeyN), Ring).
+responsible_index(Node, KeyN) ->
+    {ok, Ring} = rpc:call(Node, riak_core_ring_manager, get_my_ring, []),
+    rpc:call(Node, riak_core_ring, responsible_index, [bucket_key_hash(Node, KeyN), Ring]).
 
-%%set_bit_cask_max_file_size(SizeInBytes) ->
-%%    application:set_env(bitcask, max_file_size, SizeInBytes).
-%%
-%%set_backend_reap_expiry(TimeInSeconds) ->
-%%    application:set_env(riak_kv, delete_mode, {backend_reap, TimeInSeconds}).
+set_backend_reap_expiry(Cluster, Seconds) ->
+    [rpc:call(Node, application, set_env, [riak_kv, delete_mode, {backend_reap, Seconds}]) || Node <- Cluster],
+    ok.
 
-bitcask_get_all_nodes(Cluster, KeyN) ->
-    Fun =
-        fun(Node, Index) ->
-            {ok, State0} = rpc:call(Node, riak_kv_bitcask_backend, start, [Index, []]),
-            {Response, Obj, _State1} = rpc:call(Node, riak_kv_bitcask_backend, get, [?BUCKET, ?KEY(KeyN), State0]),
-            {Response, Obj}
-        end,
-    [{Node1, Response1, Obj1}|| {Node1, {Response1, Obj1}} <- [{Node, Fun(Node, responsible_index(KeyN))} || Node <- Cluster], Response1 == ok].
+set_bit_cask_max_file_size(Cluster, SizeInBytes) ->
+    [rpc:call(Node, application, set_env, [bitcask, max_file_size, SizeInBytes]) || Node <- Cluster],
+    ok.
 
+direct_kv_vnode_get_request(Cluster, KeyN) ->
+    Node = hd(Cluster),
+    Hash = bucket_key_hash(Node, KeyN),
+    Preflist = rpc:call(Node, riak_core_apl, get_apl, [Hash, 3, riak_kv]),
+    BKey = {?BUCKET, ?KEY(KeyN)},
+    ReqId = erlang:phash({os:timestamp(), BKey}, 1000000000),
+    Ref = make_ref(),
+    Sender = {raw, Ref, {?REGNAME, node()}},
+    riak_kv_vnode:get(Preflist, BKey, ReqId, Sender),
+    Dict = dict:from_list([{ok_object, []}, {tombstone, []}, {not_found, []}]),
 
+    lager:info("Index: ~p", [responsible_index(Node, KeyN)]),
+    lager:info("preflist: ~p", [{Preflist}]),
 
+    loop(Dict, {Ref, ReqId}).
 
-
-
+loop(Dict, Data = {Ref, ReqId}) ->
+    receive
+        {Ref, {r, {ok, Obj}, Idx, ReqId}} ->
+            lager:info("object: ~p", [Obj]),
+            loop(dict:append(ok_object, Idx, Dict), Data);
+        {Ref, {r, {error, Obj}, Idx, ReqId}} ->
+            lager:info("object: ~p", [Obj]),
+            loop(dict:append(not_found, Idx, Dict), Data)
+    after 3000 ->
+        Dict
+    end.
