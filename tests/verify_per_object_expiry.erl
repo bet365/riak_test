@@ -237,18 +237,6 @@ set_bit_cask_max_file_size(Cluster, SizeInBytes) ->
     [rpc:call(Node, application, set_env, [bitcask, max_file_size, SizeInBytes]) || Node <- Cluster],
     ok.
 
-%%direct_kv_vnode_get_request({Preflist, KeyN}) ->
-%%    Indexes = [Index || {Index, _} <- Preflist],
-%%    BKey = {?BUCKET, ?KEY(KeyN)},
-%%    ReqId = erlang:phash({os:timestamp(), BKey}, 1000000000),
-%%    Ref = make_ref(),
-%%    Sender = {raw, Ref, {?REGNAME, node()}},
-%%    riak_kv_vnode:get(Preflist, BKey, ReqId, Sender),
-%%    Dict0 = dict:from_list([{ok_object, []}, {tombstone, []}, {not_found, []}]),
-%%    {Dict1, NoResposneIndexes} = loop(Dict0, {Ref, ReqId, Indexes}),
-%%    ?assertEqual([], NoResposneIndexes),
-%%    Dict1.
-
 direct_kv_vnode_get_request(Cluster, KeyN) ->
     Preflist = get_preflist(Cluster, KeyN, 3),
     Indexes = [Index || {Index, _} <- Preflist],
@@ -328,7 +316,3 @@ reset_aae_envs(Cluster) ->
             ok = rpc:call(Node, riak_kv_entropy_manager, set_mode, [automatic])
         end,
     [ResetFun(Node) || Node <- Cluster].
-
-%%responsible_index(Node, KeyN) ->
-%%    {ok, Ring} = rpc:call(Node, riak_core_ring_manager, get_my_ring, []),
-%%    rpc:call(Node, riak_core_ring, responsible_index, [bucket_key_hash(Node, KeyN), Ring]).
