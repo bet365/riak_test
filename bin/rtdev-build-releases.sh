@@ -29,7 +29,7 @@
 # By default the Open Source version of Riak will be used, but for internal
 # testing you can override this variable to use `riak_ee` instead
 : ${RT_USE_EE:=""}
-GITURL_RIAK="git://github.com/nsaadouni/riak"
+GITURL_RIAK="git://github.com/martincox/riak"
 GITURL_RIAK_EE="git@github.com:basho/riak_ee"
 GITDIR="riak-src"
 
@@ -193,7 +193,7 @@ build()
 # build "riak-2.0.7" $R16B02 2.0.7
 # build "riak-2.1.4" $R16B02 2.1.4
 # build "riak-2.2.0" $R16B02 2.2.0
+# build "riak-2.2.4" $R16B02 2.2.4
 
- build "riak-2.2.4" $R16B02 2.2.4
- build "riak-2.2.6" $R16B02 2.2.6
+ build "riak-2.2.7" $R16B02 2.2.7
 echo
