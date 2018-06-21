@@ -89,9 +89,14 @@ test_aae_put_3_delete_2_not_expired(Cluster) ->
     timer:sleep(1000),
     ok = delete_object(Cluster, 1, KeyNumber),
     timer:sleep(1000),
-    lager:info("direct kv vnode get request: ~p", [direct_kv_vnode_get_request(Cluster, KeyNumber)]),
+
+    Dict = direct_kv_vnode_get_request(Cluster, KeyNumber),
+    lager:info("direct kv vnode get request"),
+    print_dict_to_list(dict:to_list(Dict)),
+
     restore_preflist_intercept_to_all_nodes(Cluster),
-    timer:sleep(1000),
+    timer:sleep(7000),
+    ?assertEqual(ok, rt:wait_until_no_pending_changes(Cluster)),
     aae_manual_exchange(Cluster, KeyNumber),
     timer:sleep(3000),
 
@@ -105,6 +110,7 @@ test_aae_put_3_delete_2_not_expired(Cluster) ->
     Tombstone = direct_kv_vnode_get_loop(false, [], {Cluster, KeyNumber, EqualityFun}),
     reset_aae_envs(Cluster),
     ?assertEqual(length(Tombstone), 3),
+    timer:sleep(3000),
     ?assertEqual({error, notfound}, get_object(Cluster, 1, KeyNumber)),
     pass.
 
@@ -119,9 +125,13 @@ test_aae_put_3_delete_2_expired(Cluster) ->
     timer:sleep(1000),
     ok = delete_object(Cluster, 1, KeyNumber),
     timer:sleep(1000),
-    lager:info("direct kv vnode get request: ~p", [direct_kv_vnode_get_request(Cluster, KeyNumber)]),
+
+    Dict = direct_kv_vnode_get_request(Cluster, KeyNumber),
+    lager:info("direct kv vnode get request"),
+    print_dict_to_list(dict:to_list(Dict)),
+
     restore_preflist_intercept_to_all_nodes(Cluster),
-    timer:sleep(1000),
+    timer:sleep(7000),
     aae_manual_exchange(Cluster, KeyNumber),
     timer:sleep(3000),
 
@@ -135,6 +145,7 @@ test_aae_put_3_delete_2_expired(Cluster) ->
     NotFound = direct_kv_vnode_get_loop(false, [], {Cluster, KeyNumber, EqualityFun}),
     reset_aae_envs(Cluster),
     ?assertEqual(length(NotFound), 3),
+    timer:sleep(3000),
     ?assertEqual({error, notfound}, get_object(Cluster, 1, KeyNumber)),
     pass.
 
@@ -151,8 +162,12 @@ test_aae_put_2_delete_2_expire_trigger_aae(Cluster) ->
     ok = delete_object(Cluster, 1, KeyNumber),
     timer:sleep(30000),
     restore_preflist_intercept_to_all_nodes(Cluster),
-    timer:sleep(1000),
-    lager:info("direct kv vnode get request: ~p", [direct_kv_vnode_get_request(Cluster, KeyNumber)]),
+    timer:sleep(7000),
+
+    Dict = direct_kv_vnode_get_request(Cluster, KeyNumber),
+    lager:info("direct kv vnode get request"),
+    print_dict_to_list(dict:to_list(Dict)),
+
     aae_manual_exchange(Cluster, KeyNumber),
     timer:sleep(3000),
 
@@ -166,6 +181,7 @@ test_aae_put_2_delete_2_expire_trigger_aae(Cluster) ->
     NotFound = direct_kv_vnode_get_loop(false, [], {Cluster, KeyNumber, EqualityFun}),
     reset_aae_envs(Cluster),
     ?assertEqual(length(NotFound), 3),
+    timer:sleep(3000),
     ?assertEqual({error, notfound}, get_object(Cluster, 1, KeyNumber)),
     pass.
 
@@ -175,7 +191,8 @@ test_aae_put_2_delete_2_expire_trigger_aae(Cluster) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 direct_kv_vnode_get_loop(false, [], {Cluster, KeyNumber, EquailityFun}) ->
     Dict = direct_kv_vnode_get_request(Cluster, KeyNumber),
-    lager:info("direct kv vnode get request: ~p", [dict:to_list(Dict)]),
+    lager:info("direct kv vnode get request"),
+    print_dict_to_list(dict:to_list(Dict)),
     {Result, Bool} = EquailityFun(Dict),
     timer:sleep(1000),
     case Bool of
@@ -186,6 +203,21 @@ direct_kv_vnode_get_loop(false, [], {Cluster, KeyNumber, EquailityFun}) ->
     end;
 direct_kv_vnode_get_loop(true, List, {_Cluster, _KeyNumber, _EquualityFun}) ->
     List.
+
+
+print_dict_to_list([]) ->
+    ok;
+print_dict_to_list([{Key, ValueList} | Rest]) ->
+    lager:info("Key: ~p", [Key]),
+    print_value_list(ValueList, 0),
+    print_dict_to_list(Rest).
+
+print_value_list([], _) ->
+    ok;
+print_value_list([V | Rest], Counter) ->
+    lager:info("Value~p: ~p", [Counter, V]),
+    print_value_list(Rest, Counter+1).
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %                                         Helper Fucntions                                                             %
@@ -256,12 +288,12 @@ loop(Dict, {Ref, ReqId, Indexes}) ->
         {Ref, {r, {ok, Obj}, Idx, ReqId}} ->
             case dict:find(<<"X-Riak-Deleted">>, riak_object:get_metadata(Obj)) of
                 {ok, "true"} ->
-                    loop(dict:append(tombstone, Idx, Dict), {Ref, ReqId, lists:delete(Idx, Indexes)});
+                    loop(dict:append(tombstone, {Idx, Obj}, Dict), {Ref, ReqId, lists:delete(Idx, Indexes)});
                 _  ->
-                    loop(dict:append(ok_object, Idx, Dict), {Ref, ReqId, lists:delete(Idx, Indexes)})
+                    loop(dict:append(ok_object, {Idx, Obj}, Dict), {Ref, ReqId, lists:delete(Idx, Indexes)})
             end;
-        {Ref, {r, {error, _Obj}, Idx, ReqId}} ->
-            loop(dict:append(not_found, Idx, Dict), {Ref, ReqId, lists:delete(Idx, Indexes)})
+        {Ref, {r, {error, Obj}, Idx, ReqId}} ->
+            loop(dict:append(not_found, {Idx, Obj}, Dict), {Ref, ReqId, lists:delete(Idx, Indexes)})
     after 1000 ->
         {Dict, Indexes}
     end.
