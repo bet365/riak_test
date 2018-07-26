@@ -90,9 +90,9 @@ test_aae_put_3_delete_2_not_expired(Cluster) ->
     ok = delete_object(Cluster, 1, KeyNumber),
     timer:sleep(1000),
 
-    Dict = direct_kv_vnode_get_request(Cluster, KeyNumber),
+    Dict1 = direct_kv_vnode_get_request(Cluster, KeyNumber),
     lager:info("direct kv vnode get request"),
-    print_dict_to_list(dict:to_list(Dict)),
+    print_dict_to_list(dict:to_list(Dict1)),
 
     restore_preflist_intercept_to_all_nodes(Cluster),
     timer:sleep(7000),
@@ -117,21 +117,21 @@ test_aae_put_3_delete_2_not_expired(Cluster) ->
 test_aae_put_3_delete_2_expired(Cluster) ->
     lager:info("test_aae_put_3_delete_2_expired"),
     KeyNumber = 4,
-    set_backend_reap_expiry(Cluster, 25),
+    set_backend_reap_expiry(Cluster, 45),
     set_bit_cask_max_file_size(Cluster, 10240),
     ok = put_object(Cluster, 1, KeyNumber),
     timer:sleep(1000),
     add_preflist_intercept_to_all_nodes(Cluster),
     timer:sleep(1000),
     ok = delete_object(Cluster, 1, KeyNumber),
-    timer:sleep(1000),
+    timer:sleep(3000),
 
-    Dict = direct_kv_vnode_get_request(Cluster, KeyNumber),
+    Dict1 = direct_kv_vnode_get_request(Cluster, KeyNumber),
     lager:info("direct kv vnode get request"),
-    print_dict_to_list(dict:to_list(Dict)),
+    print_dict_to_list(dict:to_list(Dict1)),
 
     restore_preflist_intercept_to_all_nodes(Cluster),
-    timer:sleep(7000),
+    timer:sleep(3000),
     aae_manual_exchange(Cluster, KeyNumber),
     timer:sleep(3000),
 
@@ -164,9 +164,9 @@ test_aae_put_2_delete_2_expire_trigger_aae(Cluster) ->
     restore_preflist_intercept_to_all_nodes(Cluster),
     timer:sleep(7000),
 
-    Dict = direct_kv_vnode_get_request(Cluster, KeyNumber),
+    Dict1 = direct_kv_vnode_get_request(Cluster, KeyNumber),
     lager:info("direct kv vnode get request"),
-    print_dict_to_list(dict:to_list(Dict)),
+    print_dict_to_list(dict:to_list(Dict1)),
 
     aae_manual_exchange(Cluster, KeyNumber),
     timer:sleep(3000),
@@ -215,7 +215,7 @@ print_dict_to_list([{Key, ValueList} | Rest]) ->
 print_value_list([], _) ->
     ok;
 print_value_list([V | Rest], Counter) ->
-    lager:info("Value~p: ~p", [Counter, V]),
+    lager:info("Value~p: ~p ~n", [Counter, V]),
     print_value_list(Rest, Counter+1).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -230,6 +230,12 @@ make_cluster({N, W, DW, R}) ->
             [
                 {ring_creation_size, 64},
                 {default_bucket_props, [{n_val, N}, {w,W}, {dw,DW}, {r,R}, {allow_mult, false}]}
+            ]
+        },
+
+        {riak_kv,
+            [
+                {backend_reap_threshold, 86400}
             ]
         }],
     Nodes = rt:deploy_nodes(8, Conf, [riak_kv]),
@@ -262,7 +268,7 @@ bucket_key_hash(Node, KeyN) ->
     rpc:call(Node, riak_core_util, chash_key, [{?BUCKET, ?KEY(KeyN)}]).
 
 set_backend_reap_expiry(Cluster, Seconds) ->
-    [rpc:call(Node, application, set_env, [riak_kv, delete_mode, {backend_reap, Seconds}]) || Node <- Cluster],
+    [rpc:call(Node, application, set_env, [riak_kv, backend_reap_threshold, Seconds]) || Node <- Cluster],
     ok.
 
 set_bit_cask_max_file_size(Cluster, SizeInBytes) ->
