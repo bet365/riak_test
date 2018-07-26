@@ -25,7 +25,7 @@ print_test(TestType, N) ->
     lager:info("---------------------------------------"),
     lager:info("---------------------------------------"),
     lager:info("---------------------------------------"),
-    lager:info("--------------- Test ~p  ~p ---------------", [TestType, N]),
+    lager:info("-------- Test ~p  ~p ---------------", [TestType, N]),
     lager:info("---------------------------------------"),
     lager:info("---------------------------------------"),
     lager:info("---------------------------------------").
@@ -37,6 +37,7 @@ print_test(TestType, N) ->
 %% ================================================================================================================== %%
 
 fullsync_test(1) ->
+    make_cluster(2,5),
     pass.
 
 %% ================================================================================================================== %%
@@ -58,27 +59,23 @@ make_cluster(N, ClusterSize) ->
             [
                 {backend_reap_threshold, 86400}
             ]
-        },
-        {riak_repl,
-            [
-                %% turn off fullsync
-                {fullsync_on_connect, false},
-                {fullsync_interval, disabled}
-            ]}],
-    Nodes = rt:deploy_nodes(NumberOfNodes, Conf, [riak_kv, riak_repl]),
-    [make_cluster_helper(Nodes, ClusterNumber, ClusterSize) || ClusterNumber <- lists:seq(1,N)].
+        }
+    ],
+    rt:deploy_nodes(NumberOfNodes, Conf, [riak_kv, riak_repl]).
+%%    [make_cluster_helper(Nodes, ClusterNumber, ClusterSize) || ClusterNumber <- lists:seq(1,N)].
 
-make_cluster_helper(Nodes, ClusterNumber, ClusterSize) ->
-    N = (ClusterNumber*ClusterSize) +1,
-    ClusterNodes = lists:sublist(Nodes, N, ClusterSize),
-    repl_util:make_cluster(ClusterNodes),
-    lager:info("waiting for leader to converge on cluster ~p", [ClusterNumber]),
-    ?assertEqual(ok, repl_util:wait_until_leader_converge(lists:nth(1, Nodes))),
-    ClusterNodes.
+%%make_cluster_helper(Nodes, ClusterNumber, ClusterSize) ->
+%%    N = ((ClusterNumber*ClusterSize) +1) -5,
+%%    ClusterNodes = lists:sublist(Nodes, N, ClusterSize),
+%%    lager:info("N ~p -> Cluster Nodes ~p", [N, ClusterNodes]),
+%%    repl_util:make_cluster(ClusterNodes),
+%%    lager:info("waiting for leader to converge on cluster ~p", [ClusterNumber]),
+%%    ?assertEqual(ok, repl_util:wait_until_leader_converge(lists:nth(1, ClusterNodes))),
+%%    ClusterNodes.
 
 
-connect_clusters({LeaderA, ClusterAName}, {LeaderB, ClusterBName}) ->
-    {ok, {_IP, Port}} = rpc:call(LeaderB, application, get_env, [riak_core, cluster_mgr]),
-    lager:info("connect cluster ~p:~p to ~p on port ~p", [ClusterAName, LeaderA, ClusterBName, Port]),
-    repl_util:connect_cluster(LeaderA, "127.0.0.1", Port),
-    ?assertEqual(ok, repl_util:wait_for_connection(LeaderA, ClusterBName)).
+%%connect_clusters({LeaderA, ClusterAName}, {LeaderB, ClusterBName}) ->
+%%    {ok, {_IP, Port}} = rpc:call(LeaderB, application, get_env, [riak_core, cluster_mgr]),
+%%    lager:info("connect cluster ~p:~p to ~p on port ~p", [ClusterAName, LeaderA, ClusterBName, Port]),
+%%    repl_util:connect_cluster(LeaderA, "127.0.0.1", Port),
+%%    ?assertEqual(ok, repl_util:wait_for_connection(LeaderA, ClusterBName)).
