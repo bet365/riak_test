@@ -5,16 +5,15 @@
 
 -define(ALL_BUCKETS_NUMS, ["1","2","3","4", "5"]).
 -define(ALL_KEY_NUMS, ["1","2","3"]).
--define(FULLSYNC_SLEEP, 60000).
+-define(FULLSYNC_SLEEP, 10000).
 
 confirm() ->
     delete_files(),
 
     [Cluster1, Cluster2, Cluster3] = make_clusters(),
-    connect_clusters({hd(Cluster1),"Cluster1"}, {hd(Cluster2), "Cluster2"}),
-    connect_clusters({hd(Cluster1),"Cluster1"}, {hd(Cluster3), "Cluster3"}),
+    connect_clusters({hd(Cluster1),"cluster1"}, {hd(Cluster2), "cluster2"}),
 
-    [ run_fullsync_test(N, [Cluster1, Cluster2, Cluster3]) || N <- [3,4,5]],
+    [ run_fullsync_test(N, [Cluster1, Cluster2, Cluster3]) || N <- lists:seq(16,16)],
     pass.
 
 run_fullsync_test(N, Clusters) ->
@@ -34,40 +33,11 @@ print_test(Name, Number) ->
 %%                                        Fullsync Tests                                                              %%
 %% ================================================================================================================== %%
 fullsync_test(TestNumber=1, [Cluster1, Cluster2, Cluster3]) ->
-    Status1 = disabled,
-    Config1 =
-    [
-        {{bucket, <<"bucket-2">>},      {whitelist, ["Cluster2"]}},
-        {{bucket, <<"bucket-3">>},      {whitelist, ["Cluster3"]}},
-        {{bucket, <<"bucket-4">>},      {blacklist, ["Cluster2"]}},
-        {{bucket, <<"bucket-5">>},      {blacklist, ["Cluster3"]}}
-    ],
-
-    Status2 = disabled,
-    Config2 =
-        [
-
-        ],
-
-    Status3 = disabled,
-    Config3 =
-        [
-
-        ],
-
-    write_terms("/tmp/config1", Config1),
-    write_terms("/tmp/config2", Config2),
-    write_terms("/tmp/config3", Config3),
-    set_object_filtering(Cluster1, Status1, "/tmp/config1"),
-    set_object_filtering(Cluster2, Status2, "/tmp/config2"),
-    set_object_filtering(Cluster3, Status3, "/tmp/config3"),
-    %% ================================================================== %%
 
     put_all_objects(Cluster1, TestNumber),
 
     %% ================================================================== %%
-    start_fullsync(Cluster1, "Cluster2"),
-    start_fullsync(Cluster1, "Cluster3"),
+    start_fullsync(Cluster1, "cluster2"),
     timer:sleep(?FULLSYNC_SLEEP),
     %% ================================================================== %%
     List1 =
@@ -78,11 +48,6 @@ fullsync_test(TestNumber=1, [Cluster1, Cluster2, Cluster3]) ->
             {"4","1"}, {"4","2"}, {"4","3"},
             {"5","1"}, {"5","2"}, {"5","3"}
         ],
-    Expected1 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- List1],
-    lager:info("Cluster 1 ~n", []),
-    ?assertEqual(true, check_objects(Cluster1, Expected1)),
-    lager:info("~n", []),
-
     List2 =
         [
             {"1","1"}, {"1","2"}, {"1","3"},
@@ -91,208 +56,29 @@ fullsync_test(TestNumber=1, [Cluster1, Cluster2, Cluster3]) ->
             {"4","1"}, {"4","2"}, {"4","3"},
             {"5","1"}, {"5","2"}, {"5","3"}
         ],
-
+    Expected1 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- List1],
     Expected2 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- List2],
-    lager:info("Cluster 2 ~n", []),
-    ?assertEqual(true, check_objects(Cluster2, Expected2)),
-    lager:info("~n", []),
-    List3 =
-        [
-            {"1","1"}, {"1","2"}, {"1","3"},
-            {"2","1"}, {"2","2"}, {"2","3"},
-            {"3","1"}, {"3","2"}, {"3","3"},
-            {"4","1"}, {"4","2"}, {"4","3"},
-            {"5","1"}, {"5","2"}, {"5","3"}
-        ],
-    Expected3 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- List3],
-    lager:info("Cluster 3 ~n", []),
-    ?assertEqual(true, check_objects(Cluster3, Expected3)),
-    lager:info("~n", []),
+    ?assertEqual(true, check_objects("cluster1", Cluster1, Expected1)),
+    ?assertEqual(true, check_objects("cluster2", Cluster2, Expected2)),
     cleanup([Cluster1, Cluster2, Cluster3]),
     pass;
 fullsync_test(TestNumber=2, [Cluster1, Cluster2, Cluster3]) ->
-    Status1 = enabled,
-    Config1 =
-        [
-            {{bucket, <<"bucket-2">>},      {whitelist, ["Cluster2"]}},
-            {{bucket, <<"bucket-3">>},      {whitelist, ["Cluster3"]}},
-            {{bucket, <<"bucket-4">>},      {blacklist, ["Cluster2"]}},
-            {{bucket, <<"bucket-5">>},      {blacklist, ["Cluster3"]}}
-        ],
-
-    Status2 = disabled,
-    Config2 =
-        [
-
-        ],
-
-    Status3 = disabled,
-    Config3 =
-        [
-
-        ],
-
-    write_terms("/tmp/config1", Config1),
-    write_terms("/tmp/config2", Config2),
-    write_terms("/tmp/config3", Config3),
-    set_object_filtering(Cluster1, Status1, "/tmp/config1"),
-    set_object_filtering(Cluster2, Status2, "/tmp/config2"),
-    set_object_filtering(Cluster3, Status3, "/tmp/config3"),
-    %% ================================================================== %%
-
-    put_all_objects(Cluster1, TestNumber),
-
-    %% ================================================================== %%
-    start_fullsync(Cluster1, "Cluster2"),
-    start_fullsync(Cluster1, "Cluster3"),
-    timer:sleep(?FULLSYNC_SLEEP),
-    %% ================================================================== %%
-    List1 =
-        [
-            {"1","1"}, {"1","2"}, {"1","3"},
-            {"2","1"}, {"2","2"}, {"2","3"},
-            {"3","1"}, {"3","2"}, {"3","3"},
-            {"4","1"}, {"4","2"}, {"4","3"},
-            {"5","1"}, {"5","2"}, {"5","3"}
-        ],
-    Expected1 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- List1],
-    lager:info("Cluster 1 ~n", []),
-    ?assertEqual(true, check_objects(Cluster1, Expected1)),
-    lager:info("~n", []),
-
-    List2 =
-        [
-            {"1","1"}, {"1","2"}, {"1","3"},
-            {"2","1"}, {"2","2"}, {"2","3"},
-            {"5","1"}, {"5","2"}, {"5","3"}
-        ],
-
-    Expected2 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- List2],
-    lager:info("Cluster 2 ~n", []),
-    ?assertEqual(true, check_objects(Cluster2, Expected2)),
-    lager:info("~n", []),
-    List3 =
-        [
-            {"1","1"}, {"1","2"}, {"1","3"},
-            {"3","1"}, {"3","2"}, {"3","3"},
-            {"4","1"}, {"4","2"}, {"4","3"}
-        ],
-    Expected3 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- List3],
-    lager:info("Cluster 3 ~n", []),
-    ?assertEqual(true, check_objects(Cluster3, Expected3)),
-    lager:info("~n", []),
-    cleanup([Cluster1, Cluster2, Cluster3]),
-    pass;
-fullsync_test(TestNumber=3, [Cluster1, Cluster2, Cluster3]) ->
-    Status1 = enabled,
-    Config1 =
-        [
-            {{metadata, {filter, "3"}},      {whitelist, ["Cluster2"]}},
-            {{bucket, <<"bucket-3">>},      {whitelist, ["Cluster3"]}},
-            {{bucket, <<"bucket-4">>},      {blacklist, ["Cluster2"]}},
-            {{metadata, {filter, "2"}},      {whitelist, ["Cluster3", "Cluster2"]}}
-        ],
-
-    Status2 = disabled,
-    Config2 =
-        [
-
-        ],
-
-    Status3 = disabled,
-    Config3 =
-        [
-
-        ],
-
-    write_terms("/tmp/config1", Config1),
-    write_terms("/tmp/config2", Config2),
-    write_terms("/tmp/config3", Config3),
-    set_object_filtering(Cluster1, Status1, "/tmp/config1"),
-    set_object_filtering(Cluster2, Status2, "/tmp/config2"),
-    set_object_filtering(Cluster3, Status3, "/tmp/config3"),
-    %% ================================================================== %%
-
-    put_all_objects(Cluster1, TestNumber),
-
-    %% ================================================================== %%
-    start_fullsync(Cluster1, "Cluster2"),
-    start_fullsync(Cluster1, "Cluster3"),
-    timer:sleep(?FULLSYNC_SLEEP),
-    %% ================================================================== %%
-    List1 =
-        [
-            {"1","1"}, {"1","2"}, {"1","3"},
-            {"2","1"}, {"2","2"}, {"2","3"},
-            {"3","1"}, {"3","2"}, {"3","3"},
-            {"4","1"}, {"4","2"}, {"4","3"},
-            {"5","1"}, {"5","2"}, {"5","3"}
-        ],
-    Expected1 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- List1],
-    lager:info("Cluster 1 ~n", []),
-    ?assertEqual(true, check_objects(Cluster1, Expected1)),
-    lager:info("~n", []),
-
-    List2 =
-        [
-            {"1","1"}, {"1","2"}, {"1", "3"},
-            {"2","1"}, {"2","2"}, {"2", "3"},
-            {"5","1"}, {"5","2"}, {"5", "3"}
-        ],
-
-    Expected2 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- List2],
-    lager:info("Cluster 2 ~n", []),
-    ?assertEqual(true, check_objects(Cluster2, Expected2)),
-    lager:info("~n", []),
-    List3 =
-        [
-            {"1","1"}, {"1","2"},
-            {"2","1"}, {"2","2"},
-            {"3","1"}, {"3","2"},
-            {"4","1"}, {"4","2"},
-            {"5","1"}, {"5","2"}
-        ],
-    Expected3 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- List3],
-    lager:info("Cluster 3 ~n", []),
-    ?assertEqual(true, check_objects(Cluster3, Expected3)),
-    lager:info("~n", []),
-    cleanup([Cluster1, Cluster2, Cluster3]),
-    pass;
-fullsync_test(TestNumber=4, [Cluster1, Cluster2, Cluster3]) ->
     Status1 = disabled,
     Config1 =
         [
-
+            {"cluster2",
+                {allow,['*']},
+                {block,[]}
+            }
         ],
-
-    Status2 = enabled,
-    Config2 =
-        [
-            {{bucket, <<"bucket-2">>},      {whitelist, ["Cluster1"]}},
-            {{bucket, <<"bucket-3">>},      {whitelist, ["Cluster3"]}},
-            {{bucket, <<"bucket-4">>},      {blacklist, ["Cluster1"]}},
-            {{bucket, <<"bucket-5">>},      {blacklist, ["Cluster3"]}}
-        ],
-
-    Status3 = disabled,
-    Config3 =
-        [
-
-        ],
-
     write_terms("/tmp/config1", Config1),
-    write_terms("/tmp/config2", Config2),
-    write_terms("/tmp/config3", Config3),
     set_object_filtering(Cluster1, Status1, "/tmp/config1"),
-    set_object_filtering(Cluster2, Status2, "/tmp/config2"),
-    set_object_filtering(Cluster3, Status3, "/tmp/config3"),
     %% ================================================================== %%
 
     put_all_objects(Cluster1, TestNumber),
 
     %% ================================================================== %%
-    start_fullsync(Cluster1, "Cluster2"),
-    start_fullsync(Cluster1, "Cluster3"),
+    start_fullsync(Cluster1, "cluster2"),
     timer:sleep(?FULLSYNC_SLEEP),
     %% ================================================================== %%
     List1 =
@@ -303,23 +89,7 @@ fullsync_test(TestNumber=4, [Cluster1, Cluster2, Cluster3]) ->
             {"4","1"}, {"4","2"}, {"4","3"},
             {"5","1"}, {"5","2"}, {"5","3"}
         ],
-    Expected1 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- List1],
-    lager:info("Cluster 1 ~n", []),
-    ?assertEqual(true, check_objects(Cluster1, Expected1)),
-    lager:info("~n", []),
-
     List2 =
-        [
-            {"1","1"}, {"1","2"}, {"1","3"},
-            {"2","1"}, {"2","2"}, {"2","3"},
-            {"5","1"}, {"5","2"}, {"5","3"}
-        ],
-
-    Expected2 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- List2],
-    lager:info("Cluster 2 ~n", []),
-    ?assertEqual(true, check_objects(Cluster2, Expected2)),
-    lager:info("~n", []),
-    List3 =
         [
             {"1","1"}, {"1","2"}, {"1","3"},
             {"2","1"}, {"2","2"}, {"2","3"},
@@ -327,44 +97,111 @@ fullsync_test(TestNumber=4, [Cluster1, Cluster2, Cluster3]) ->
             {"4","1"}, {"4","2"}, {"4","3"},
             {"5","1"}, {"5","2"}, {"5","3"}
         ],
-    Expected3 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- List3],
-    lager:info("Cluster 3 ~n", []),
-    ?assertEqual(true, check_objects(Cluster3, Expected3)),
-    lager:info("~n", []),
+    Expected1 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- List1],
+    Expected2 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- List2],
+    ?assertEqual(true, check_objects("cluster1", Cluster1, Expected1)),
+    ?assertEqual(true, check_objects("cluster2", Cluster2, Expected2)),
+    cleanup([Cluster1, Cluster2, Cluster3]),
+    pass;
+fullsync_test(TestNumber=3, [Cluster1, Cluster2, Cluster3]) ->
+    Status1 = disabled,
+    Config1 =
+        [
+            {"cluster2",
+                {allow,[]},
+                {block,['*']}
+            }
+        ],
+    write_terms("/tmp/config1", Config1),
+    set_object_filtering(Cluster1, Status1, "/tmp/config1"),
+    %% ================================================================== %%
+
+    put_all_objects(Cluster1, TestNumber),
+
+    %% ================================================================== %%
+    start_fullsync(Cluster1, "cluster2"),
+    timer:sleep(?FULLSYNC_SLEEP),
+    %% ================================================================== %%
+    List1 =
+        [
+            {"1","1"}, {"1","2"}, {"1","3"},
+            {"2","1"}, {"2","2"}, {"2","3"},
+            {"3","1"}, {"3","2"}, {"3","3"},
+            {"4","1"}, {"4","2"}, {"4","3"},
+            {"5","1"}, {"5","2"}, {"5","3"}
+        ],
+    List2 =
+        [
+            {"1","1"}, {"1","2"}, {"1","3"},
+            {"2","1"}, {"2","2"}, {"2","3"},
+            {"3","1"}, {"3","2"}, {"3","3"},
+            {"4","1"}, {"4","2"}, {"4","3"},
+            {"5","1"}, {"5","2"}, {"5","3"}
+        ],
+    Expected1 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- List1],
+    Expected2 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- List2],
+    ?assertEqual(true, check_objects("cluster1", Cluster1, Expected1)),
+    ?assertEqual(true, check_objects("cluster2", Cluster2, Expected2)),
+    cleanup([Cluster1, Cluster2, Cluster3]),
+    pass;
+fullsync_test(TestNumber=4, [Cluster1, Cluster2, Cluster3]) ->
+    Status1 = enabled,
+    Config1 =
+        [
+            {"cluster2",
+                {allow,['*']},
+                {block,[]}
+            }
+        ],
+    write_terms("/tmp/config1", Config1),
+    set_object_filtering(Cluster1, Status1, "/tmp/config1"),
+    %% ================================================================== %%
+
+    put_all_objects(Cluster1, TestNumber),
+
+    %% ================================================================== %%
+    start_fullsync(Cluster1, "cluster2"),
+    timer:sleep(?FULLSYNC_SLEEP),
+    %% ================================================================== %%
+    List1 =
+        [
+            {"1","1"}, {"1","2"}, {"1","3"},
+            {"2","1"}, {"2","2"}, {"2","3"},
+            {"3","1"}, {"3","2"}, {"3","3"},
+            {"4","1"}, {"4","2"}, {"4","3"},
+            {"5","1"}, {"5","2"}, {"5","3"}
+        ],
+    List2 =
+        [
+            {"1","1"}, {"1","2"}, {"1","3"},
+            {"2","1"}, {"2","2"}, {"2","3"},
+            {"3","1"}, {"3","2"}, {"3","3"},
+            {"4","1"}, {"4","2"}, {"4","3"},
+            {"5","1"}, {"5","2"}, {"5","3"}
+        ],
+    Expected1 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- List1],
+    Expected2 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- List2],
+    ?assertEqual(true, check_objects("cluster1", Cluster1, Expected1)),
+    ?assertEqual(true, check_objects("cluster2", Cluster2, Expected2)),
     cleanup([Cluster1, Cluster2, Cluster3]),
     pass;
 fullsync_test(TestNumber=5, [Cluster1, Cluster2, Cluster3]) ->
     Status1 = enabled,
     Config1 =
         [
-
+            {"cluster2",
+                {allow,[]},
+                {block,['*']}
+            }
         ],
-
-    Status2 = enabled,
-    Config2 =
-        [
-
-        ],
-
-    Status3 = enabled,
-    Config3 =
-        [
-
-        ],
-
     write_terms("/tmp/config1", Config1),
-    write_terms("/tmp/config2", Config2),
-    write_terms("/tmp/config3", Config3),
     set_object_filtering(Cluster1, Status1, "/tmp/config1"),
-    set_object_filtering(Cluster2, Status2, "/tmp/config2"),
-    set_object_filtering(Cluster3, Status3, "/tmp/config3"),
     %% ================================================================== %%
 
     put_all_objects(Cluster1, TestNumber),
 
     %% ================================================================== %%
-    start_fullsync(Cluster1, "Cluster2"),
-    start_fullsync(Cluster1, "Cluster3"),
+    start_fullsync(Cluster1, "cluster2"),
     timer:sleep(?FULLSYNC_SLEEP),
     %% ================================================================== %%
     List1 =
@@ -375,11 +212,119 @@ fullsync_test(TestNumber=5, [Cluster1, Cluster2, Cluster3]) ->
             {"4","1"}, {"4","2"}, {"4","3"},
             {"5","1"}, {"5","2"}, {"5","3"}
         ],
+    List2 = [],
     Expected1 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- List1],
-    lager:info("Cluster 1 ~n", []),
-    ?assertEqual(true, check_objects(Cluster1, Expected1)),
-    lager:info("~n", []),
+    Expected2 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- List2],
+    ?assertEqual(true, check_objects("cluster1", Cluster1, Expected1)),
+    ?assertEqual(true, check_objects("cluster2", Cluster2, Expected2)),
+    cleanup([Cluster1, Cluster2, Cluster3]),
+    pass;
+fullsync_test(TestNumber=6, [Cluster1, Cluster2, Cluster3]) ->
+    Status1 = enabled,
+    Config1 =
+        [
+            {"cluster2",
+                {allow,[{bucket, <<"bucket-1">>}]},
+                {block,[]}
+            }
+        ],
+    write_terms("/tmp/config1", Config1),
+    set_object_filtering(Cluster1, Status1, "/tmp/config1"),
+    %% ================================================================== %%
 
+    put_all_objects(Cluster1, TestNumber),
+
+    %% ================================================================== %%
+    start_fullsync(Cluster1, "cluster2"),
+    timer:sleep(?FULLSYNC_SLEEP),
+    %% ================================================================== %%
+    List1 =
+        [
+            {"1","1"}, {"1","2"}, {"1","3"},
+            {"2","1"}, {"2","2"}, {"2","3"},
+            {"3","1"}, {"3","2"}, {"3","3"},
+            {"4","1"}, {"4","2"}, {"4","3"},
+            {"5","1"}, {"5","2"}, {"5","3"}
+        ],
+    List2 =
+        [
+            {"1","1"}, {"1","2"}, {"1","3"}
+        ],
+    Expected1 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- List1],
+    Expected2 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- List2],
+    ?assertEqual(true, check_objects("cluster1", Cluster1, Expected1)),
+    ?assertEqual(true, check_objects("cluster2", Cluster2, Expected2)),
+    cleanup([Cluster1, Cluster2, Cluster3]),
+    pass;
+fullsync_test(TestNumber=7, [Cluster1, Cluster2, Cluster3]) ->
+    Status1 = enabled,
+    Config1 =
+        [
+            {"cluster2",
+                {allow,['*']},
+                {block,[
+                    {bucket, <<"bucket-2">>},
+                    {bucket, <<"bucket-3">>},
+                    {bucket, <<"bucket-4">>},
+                    {bucket, <<"bucket-5">>}
+                ]}
+            }
+        ],
+    write_terms("/tmp/config1", Config1),
+    set_object_filtering(Cluster1, Status1, "/tmp/config1"),
+    %% ================================================================== %%
+
+    put_all_objects(Cluster1, TestNumber),
+
+    %% ================================================================== %%
+    start_fullsync(Cluster1, "cluster2"),
+    timer:sleep(?FULLSYNC_SLEEP),
+    %% ================================================================== %%
+    List1 =
+        [
+            {"1","1"}, {"1","2"}, {"1","3"},
+            {"2","1"}, {"2","2"}, {"2","3"},
+            {"3","1"}, {"3","2"}, {"3","3"},
+            {"4","1"}, {"4","2"}, {"4","3"},
+            {"5","1"}, {"5","2"}, {"5","3"}
+        ],
+    List2 =
+        [
+            {"1","1"}, {"1","2"}, {"1","3"}
+        ],
+    Expected1 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- List1],
+    Expected2 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- List2],
+    ?assertEqual(true, check_objects("cluster1", Cluster1, Expected1)),
+    ?assertEqual(true, check_objects("cluster2", Cluster2, Expected2)),
+    cleanup([Cluster1, Cluster2, Cluster3]),
+    pass;
+fullsync_test(TestNumber=8, [Cluster1, Cluster2, Cluster3]) ->
+    Status1 = enabled,
+    Config1 =
+        [
+            {"cluster2",
+                {allow,[{bucket, all}]},
+                {block,[]}
+            }
+        ],
+    write_terms("/tmp/config1", Config1),
+    set_object_filtering(Cluster1, Status1, "/tmp/config1"),
+    %% ================================================================== %%
+
+    put_all_objects(Cluster1, TestNumber),
+
+    %% ================================================================== %%
+    start_fullsync(Cluster1, "cluster2"),
+    timer:sleep(?FULLSYNC_SLEEP),
+    %% ================================================================== %%
+    List1 =
+        [
+            {"1","1"}, {"1","2"}, {"1","3"},
+            {"2","1"}, {"2","2"}, {"2","3"},
+            {"3","1"}, {"3","2"}, {"3","3"},
+            {"4","1"}, {"4","2"}, {"4","3"},
+            {"5","1"}, {"5","2"}, {"5","3"}
+        ],
     List2 =
         [
             {"1","1"}, {"1","2"}, {"1","3"},
@@ -388,12 +333,32 @@ fullsync_test(TestNumber=5, [Cluster1, Cluster2, Cluster3]) ->
             {"4","1"}, {"4","2"}, {"4","3"},
             {"5","1"}, {"5","2"}, {"5","3"}
         ],
-
+    Expected1 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- List1],
     Expected2 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- List2],
-    lager:info("Cluster 2 ~n", []),
-    ?assertEqual(true, check_objects(Cluster2, Expected2)),
-    lager:info("~n", []),
-    List3 =
+    ?assertEqual(true, check_objects("cluster1", Cluster1, Expected1)),
+    ?assertEqual(true, check_objects("cluster2", Cluster2, Expected2)),
+    cleanup([Cluster1, Cluster2, Cluster3]),
+    pass;
+fullsync_test(TestNumber=9, [Cluster1, Cluster2, Cluster3]) ->
+    Status1 = enabled,
+    Config1 =
+        [
+            {"cluster2",
+                {allow,[]},
+                {block,[{bucket, all}]}
+            }
+        ],
+    write_terms("/tmp/config1", Config1),
+    set_object_filtering(Cluster1, Status1, "/tmp/config1"),
+    %% ================================================================== %%
+
+    put_all_objects(Cluster1, TestNumber),
+
+    %% ================================================================== %%
+    start_fullsync(Cluster1, "cluster2"),
+    timer:sleep(?FULLSYNC_SLEEP),
+    %% ================================================================== %%
+    List1 =
         [
             {"1","1"}, {"1","2"}, {"1","3"},
             {"2","1"}, {"2","2"}, {"2","3"},
@@ -401,12 +366,305 @@ fullsync_test(TestNumber=5, [Cluster1, Cluster2, Cluster3]) ->
             {"4","1"}, {"4","2"}, {"4","3"},
             {"5","1"}, {"5","2"}, {"5","3"}
         ],
-    Expected3 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- List3],
-    lager:info("Cluster 3 ~n", []),
-    ?assertEqual(true, check_objects(Cluster3, Expected3)),
-    lager:info("~n", []),
+    List2 =
+        [],
+    Expected1 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- List1],
+    Expected2 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- List2],
+    ?assertEqual(true, check_objects("cluster1", Cluster1, Expected1)),
+    ?assertEqual(true, check_objects("cluster2", Cluster2, Expected2)),
+    cleanup([Cluster1, Cluster2, Cluster3]),
+    pass;
+fullsync_test(TestNumber=10, [Cluster1, Cluster2, Cluster3]) ->
+    Status1 = enabled,
+    Config1 =
+        [
+            {"cluster2",
+                {allow,[{metadata, {filter, "2"}}]},
+                {block,[]}
+            }
+        ],
+    write_terms("/tmp/config1", Config1),
+    set_object_filtering(Cluster1, Status1, "/tmp/config1"),
+    %% ================================================================== %%
+
+    put_all_objects(Cluster1, TestNumber),
+
+    %% ================================================================== %%
+    start_fullsync(Cluster1, "cluster2"),
+    timer:sleep(?FULLSYNC_SLEEP),
+    %% ================================================================== %%
+    List1 =
+        [
+            {"1","1"}, {"1","2"}, {"1","3"},
+            {"2","1"}, {"2","2"}, {"2","3"},
+            {"3","1"}, {"3","2"}, {"3","3"},
+            {"4","1"}, {"4","2"}, {"4","3"},
+            {"5","1"}, {"5","2"}, {"5","3"}
+        ],
+    List2 =
+        [
+            {"1","2"},
+            {"2","2"},
+            {"3","2"},
+            {"4","2"},
+            {"5","2"}
+        ],
+    Expected1 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- List1],
+    Expected2 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- List2],
+    ?assertEqual(true, check_objects("cluster1", Cluster1, Expected1)),
+    ?assertEqual(true, check_objects("cluster2", Cluster2, Expected2)),
+    cleanup([Cluster1, Cluster2, Cluster3]),
+    pass;
+fullsync_test(TestNumber=11, [Cluster1, Cluster2, Cluster3]) ->
+    Status1 = enabled,
+    Config1 =
+        [
+            {"cluster2",
+                {allow,[{metadata, {filter, "3"}}]},
+                {block,[]}
+            }
+        ],
+    write_terms("/tmp/config1", Config1),
+    set_object_filtering(Cluster1, Status1, "/tmp/config1"),
+    %% ================================================================== %%
+
+    put_all_objects(Cluster1, TestNumber),
+
+    %% ================================================================== %%
+    start_fullsync(Cluster1, "cluster2"),
+    timer:sleep(?FULLSYNC_SLEEP),
+    %% ================================================================== %%
+    List1 =
+        [
+            {"1","1"}, {"1","2"}, {"1","3"},
+            {"2","1"}, {"2","2"}, {"2","3"},
+            {"3","1"}, {"3","2"}, {"3","3"},
+            {"4","1"}, {"4","2"}, {"4","3"},
+            {"5","1"}, {"5","2"}, {"5","3"}
+        ],
+    List2 =
+        [
+            {"1","3"},
+            {"2","3"},
+            {"3","3"},
+            {"4","3"},
+            {"5","3"}
+        ],
+    Expected1 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- List1],
+    Expected2 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- List2],
+    ?assertEqual(true, check_objects("cluster1", Cluster1, Expected1)),
+    ?assertEqual(true, check_objects("cluster2", Cluster2, Expected2)),
+    cleanup([Cluster1, Cluster2, Cluster3]),
+    pass;
+fullsync_test(TestNumber=12, [Cluster1, Cluster2, Cluster3]) ->
+    Status1 = enabled,
+    Config1 =
+        [
+            {"cluster2",
+                {allow,['*']},
+                {block,[{metadata, {filter, all}}]}
+            }
+        ],
+    write_terms("/tmp/config1", Config1),
+    set_object_filtering(Cluster1, Status1, "/tmp/config1"),
+    %% ================================================================== %%
+
+    put_all_objects(Cluster1, TestNumber),
+
+    %% ================================================================== %%
+    start_fullsync(Cluster1, "cluster2"),
+    timer:sleep(?FULLSYNC_SLEEP),
+    %% ================================================================== %%
+    List1 =
+        [
+            {"1","1"}, {"1","2"}, {"1","3"},
+            {"2","1"}, {"2","2"}, {"2","3"},
+            {"3","1"}, {"3","2"}, {"3","3"},
+            {"4","1"}, {"4","2"}, {"4","3"},
+            {"5","1"}, {"5","2"}, {"5","3"}
+        ],
+    List2 =
+        [
+            {"1","1"},
+            {"2","1"},
+            {"3","1"},
+            {"4","1"},
+            {"5","1"}
+        ],
+    Expected1 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- List1],
+    Expected2 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- List2],
+    ?assertEqual(true, check_objects("cluster1", Cluster1, Expected1)),
+    ?assertEqual(true, check_objects("cluster2", Cluster2, Expected2)),
+    cleanup([Cluster1, Cluster2, Cluster3]),
+    pass;
+fullsync_test(TestNumber=13, [Cluster1, Cluster2, Cluster3]) ->
+    Status1 = enabled,
+    Config1 =
+        [
+            {"cluster2",
+                {allow,[{not_bucket, <<"bucket-1">>}]},
+                {block,[]}
+            }
+        ],
+    write_terms("/tmp/config1", Config1),
+    set_object_filtering(Cluster1, Status1, "/tmp/config1"),
+    %% ================================================================== %%
+
+    put_all_objects(Cluster1, TestNumber),
+
+    %% ================================================================== %%
+    start_fullsync(Cluster1, "cluster2"),
+    timer:sleep(?FULLSYNC_SLEEP),
+    %% ================================================================== %%
+    List1 =
+        [
+            {"1","1"}, {"1","2"}, {"1","3"},
+            {"2","1"}, {"2","2"}, {"2","3"},
+            {"3","1"}, {"3","2"}, {"3","3"},
+            {"4","1"}, {"4","2"}, {"4","3"},
+            {"5","1"}, {"5","2"}, {"5","3"}
+        ],
+    List2 =
+        [
+            {"2","1"}, {"2","2"}, {"2","3"},
+            {"3","1"}, {"3","2"}, {"3","3"},
+            {"4","1"}, {"4","2"}, {"4","3"},
+            {"5","1"}, {"5","2"}, {"5","3"}
+        ],
+    Expected1 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- List1],
+    Expected2 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- List2],
+    ?assertEqual(true, check_objects("cluster1", Cluster1, Expected1)),
+    ?assertEqual(true, check_objects("cluster2", Cluster2, Expected2)),
+    cleanup([Cluster1, Cluster2, Cluster3]),
+    pass;
+fullsync_test(TestNumber=14, [Cluster1, Cluster2, Cluster3]) ->
+    Status1 = enabled,
+    Config1 =
+        [
+            {"cluster2",
+                {allow,[[{not_bucket, <<"bucket-1">>}, {not_bucket, <<"bucket-2">>}]]},
+                {block,[]}
+            }
+        ],
+    write_terms("/tmp/config1", Config1),
+    set_object_filtering(Cluster1, Status1, "/tmp/config1"),
+    %% ================================================================== %%
+
+    put_all_objects(Cluster1, TestNumber),
+
+    %% ================================================================== %%
+    start_fullsync(Cluster1, "cluster2"),
+    timer:sleep(?FULLSYNC_SLEEP),
+    %% ================================================================== %%
+    List1 =
+        [
+            {"1","1"}, {"1","2"}, {"1","3"},
+            {"2","1"}, {"2","2"}, {"2","3"},
+            {"3","1"}, {"3","2"}, {"3","3"},
+            {"4","1"}, {"4","2"}, {"4","3"},
+            {"5","1"}, {"5","2"}, {"5","3"}
+        ],
+    List2 =
+        [
+            {"1","1"}, {"1","2"}, {"1","3"},
+            {"2","1"}, {"2","2"}, {"2","3"},
+            {"3","1"}, {"3","2"}, {"3","3"},
+            {"4","1"}, {"4","2"}, {"4","3"},
+            {"5","1"}, {"5","2"}, {"5","3"}
+        ],
+    Expected1 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- List1],
+    Expected2 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- List2],
+    ?assertEqual(true, check_objects("cluster1", Cluster1, Expected1)),
+    ?assertEqual(true, check_objects("cluster2", Cluster2, Expected2)),
+    cleanup([Cluster1, Cluster2, Cluster3]),
+    pass;
+fullsync_test(TestNumber=15, [Cluster1, Cluster2, Cluster3]) ->
+    Status1 = enabled,
+    Config1 =
+        [
+            {"cluster2",
+                {allow,
+                    [
+                        [{not_bucket, <<"bucket-1">>}, {not_metadata, {filter, "2"}}]
+                    ]},
+                {block,[]}
+            }
+        ],
+    write_terms("/tmp/config1", Config1),
+    set_object_filtering(Cluster1, Status1, "/tmp/config1"),
+    %% ================================================================== %%
+
+    put_all_objects(Cluster1, TestNumber),
+
+    %% ================================================================== %%
+    start_fullsync(Cluster1, "cluster2"),
+    timer:sleep(?FULLSYNC_SLEEP),
+    %% ================================================================== %%
+    List1 =
+        [
+            {"1","1"}, {"1","2"}, {"1","3"},
+            {"2","1"}, {"2","2"}, {"2","3"},
+            {"3","1"}, {"3","2"}, {"3","3"},
+            {"4","1"}, {"4","2"}, {"4","3"},
+            {"5","1"}, {"5","2"}, {"5","3"}
+        ],
+    List2 =
+        [
+            {"1","1"},            {"1","3"},
+            {"2","1"}, {"2","2"}, {"2","3"},
+            {"3","1"}, {"3","2"}, {"3","3"},
+            {"4","1"}, {"4","2"}, {"4","3"},
+            {"5","1"}, {"5","2"}, {"5","3"}
+        ],
+    Expected1 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- List1],
+    Expected2 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- List2],
+    ?assertEqual(true, check_objects("cluster1", Cluster1, Expected1)),
+    ?assertEqual(true, check_objects("cluster2", Cluster2, Expected2)),
+    cleanup([Cluster1, Cluster2, Cluster3]),
+    pass;
+fullsync_test(TestNumber=16, [Cluster1, Cluster2, Cluster3]) ->
+    Status1 = enabled,
+    Config1 =
+        [
+            {"cluster2",
+                {allow,
+                    [
+                        [{bucket, <<"bucket-2">>}, {metadata, {filter, all}}],
+                        {bucket, <<"bucket-3">>}
+                    ]},
+                {block,[[{bucket, <<"bucket-3">>}, {not_metadata, {filter, "2"}}]]}
+            }
+        ],
+    write_terms("/tmp/config1", Config1),
+    set_object_filtering(Cluster1, Status1, "/tmp/config1"),
+    %% ================================================================== %%
+
+    put_all_objects(Cluster1, TestNumber),
+
+    %% ================================================================== %%
+    start_fullsync(Cluster1, "cluster2"),
+    timer:sleep(?FULLSYNC_SLEEP),
+    %% ================================================================== %%
+    List1 =
+        [
+            {"1","1"}, {"1","2"}, {"1","3"},
+            {"2","1"}, {"2","2"}, {"2","3"},
+            {"3","1"}, {"3","2"}, {"3","3"},
+            {"4","1"}, {"4","2"}, {"4","3"},
+            {"5","1"}, {"5","2"}, {"5","3"}
+        ],
+    List2 =
+        [
+            {"2","2"}, {"2","3"},
+            {"3","2"}
+        ],
+    Expected1 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- List1],
+    Expected2 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- List2],
+    ?assertEqual(true, check_objects("cluster1", Cluster1, Expected1)),
+    ?assertEqual(true, check_objects("cluster2", Cluster2, Expected2)),
     cleanup([Cluster1, Cluster2, Cluster3]),
     pass.
+
 %% ================================================================================================================== %%
 %%                                        Riak Test Functions                                                         %%
 %% ================================================================================================================== %%
@@ -415,18 +673,18 @@ put_all_objects(Cluster, TestNumber) ->
     Node = hd(Cluster),
     {ok, C} = riak:client_connect(Node),
     [C:put(Obj) || Obj <- create_objects(all, TestNumber)],
-    lager:info("Placed all data on Cluster1").
+    lager:info("Placed all data on cluster1").
 
-delete_all_objects(Cluster) ->
+delete_all_objects(ClusterName, Cluster) ->
     Node = hd(Cluster),
     {ok, C} = riak:client_connect(Node),
     [C:delete(make_bucket(BN), make_key(KN)) || BN <- ?ALL_BUCKETS_NUMS, KN <- ?ALL_KEY_NUMS],
-    lager:info("Deleted all data").
+    lager:info("Deleted all data for ~p", [ClusterName]).
 
 
-check_objects(Cluster, Expected) ->
+check_objects(ClusterName, Cluster, Expected) ->
     Actual = get_all_objects(Cluster),
-    print_objects(Actual),
+    print_objects(ClusterName, Actual),
     lists:sort(Actual) == lists:sort(Expected).
 
 get_all_objects(Cluster) ->
@@ -497,11 +755,11 @@ make_clusters() ->
     lager:info("waiting for leader to converge on cluster 3"),
     ?assertEqual(ok, repl_util:wait_until_leader_converge(Cluster3)),
 
-    repl_util:name_cluster(hd(Cluster1), "Cluster1"),
+    repl_util:name_cluster(hd(Cluster1), "cluster1"),
     rt:wait_until_ring_converged(Cluster1),
-    repl_util:name_cluster(hd(Cluster2), "Cluster2"),
+    repl_util:name_cluster(hd(Cluster2), "cluster2"),
     rt:wait_until_ring_converged(Cluster2),
-    repl_util:name_cluster(hd(Cluster3), "Cluster3"),
+    repl_util:name_cluster(hd(Cluster3), "cluster3"),
     rt:wait_until_ring_converged(Cluster3),
     [Cluster1, Cluster2, Cluster3].
 
@@ -532,15 +790,13 @@ start_fullsync(Cluster, C2Name) ->
     Node = hd(Cluster),
     lager:info("Starting fullsync on: ~p", [Node]),
     rpc:call(Node, riak_repl_console, fullsync, [["start", C2Name]]),
-    lager:info("Cluster for fullsync start: ~p", [Cluster]),
     rt:wait_until_ring_converged(Cluster).
 
 stop_fullsync(Cluster, C2Name) ->
     disable_fullsync(Cluster, C2Name),
     Node = hd(Cluster),
-    lager:info("Starting fullsync on: ~p", [Node]),
+    lager:info("Stopping fullsync on: ~p", [Node]),
     rpc:call(Node, riak_repl_console, fullsync, [["stop", C2Name]]),
-    lager:info("Cluster for fullsync start: ~p", [Cluster]),
     rt:wait_until_ring_converged(Cluster).
 
 set_object_filtering(Cluster, Status, Config) ->
@@ -571,26 +827,26 @@ write_terms(Filename, List) ->
     file:write_file(Filename, Text).
 
 cleanup(Clusters) ->
-    delete_data(Clusters),
+    ClusterNames = ["cluster1", "cluster2", "cluster3"],
+    delete_data(Clusters, ClusterNames),
     clear_config(Clusters),
     delete_files(),
-    stop_fullsync(hd(Clusters), "Cluster2"),
-    stop_fullsync(hd(Clusters), "Cluster3"),
+    stop_fullsync(hd(Clusters), "cluster2"),
     lager:info("Cleanup complete ~n", []),
-    timer:sleep(10000),
-    check(Clusters),
+    check(Clusters, ClusterNames),
     ok.
 
-delete_data([]) -> ok;
-delete_data([Cluster|Rest]) -> delete_all_objects(Cluster), delete_data(Rest).
+delete_data([], []) -> ok;
+delete_data([Cluster|Rest1], [ClusterName|Rest2]) ->
+    delete_all_objects(ClusterName, Cluster),
+    delete_data(Rest1, Rest2).
 
-check([]) -> ?assertEqual(true, true);
-check([Cluster|Rest]) -> ?assertEqual(true, check_objects(Cluster, [])), check(Rest).
+check([], []) -> ?assertEqual(true, true);
+check([Cluster|Rest1], [ClusterName|Rest2]) ->
+    ?assertEqual(true, check_objects(ClusterName, Cluster, [])), check(Rest1, Rest2).
 
 delete_files() ->
-    file:delete("/tmp/config1"),
-    file:delete("/tmp/config2"),
-    file:delete("/tmp/config3").
+    file:delete("/tmp/config1").
 
 clear_config([]) -> ok;
 clear_config([Cluster| Rest]) ->
@@ -598,7 +854,11 @@ clear_config([Cluster| Rest]) ->
     rpc:call(hd(Cluster), riak_repl_console, object_filtering_disable, [[]]),
     clear_config(Rest).
 
-print_objects([]) -> ok;
-print_objects([{Bucket, Key}|Rest]) ->
+print_objects(ClusterName, Objects) ->
+    lager:info("All objects for ~p ~n", [ClusterName]),
+    print_objects_helper(Objects),
+    lager:info("~n", []).
+print_objects_helper([]) -> ok;
+print_objects_helper([{Bucket, Key}|Rest]) ->
     lager:info("~p, ~p ~n", [Bucket, Key]),
-    print_objects(Rest).
+    print_objects_helper(Rest).
