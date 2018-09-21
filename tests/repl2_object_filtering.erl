@@ -5,7 +5,8 @@
 
 -define(ALL_BUCKETS_NUMS, ["1","2", "3"]).
 -define(ALL_KEY_NUMS, ["1","2","3"]).
--define(REPL_SLEEP, 6000).
+-define(FS_REPL_SLEEP, 5000).
+-define(RT_REPL_SLEEP, 20000).
 
 confirm() ->
     delete_files(),
@@ -13,57 +14,57 @@ confirm() ->
     connect_clusters({hd(Cluster1),"cluster1"}, {hd(Cluster2), "cluster2"}),
     connect_clusters({hd(Cluster2),"cluster2"}, {hd(Cluster3), "cluster3"}),
     %% Single tests - these are run as {TestNumeber, Status, Config, ExpectedObjects}
-%%    Tests =
-%%        [
-%%            {0, disabled, [{"cluster2", {allow, []}, {block,[]}}], []},
-%%            {
-%%                1,
-%%                disabled,
-%%                [{"cluster2", {allow, ['*']}, {block,['*']}}],
-%%                [{"1","1"}, {"1","2"}, {"1","3"}, {"2","1"}, {"2","2"}, {"2","3"}, {"3","1"}, {"3","2"}, {"3","3"}]
-%%            },
-%%            {
-%%                2,
-%%                disabled,
-%%                [{"cluster2", {allow, ['*']}, {block,[]}}],
-%%                [{"1","1"}, {"1","2"}, {"1","3"}, {"2","1"}, {"2","2"}, {"2","3"}, {"3","1"}, {"3","2"}, {"3","3"}]
-%%            },
-%%            {
-%%                3,
-%%                disabled,
-%%                [{"cluster2", {allow, []}, {block,['*']}}],
-%%                [{"1","1"}, {"1","2"}, {"1","3"}, {"2","1"}, {"2","2"}, {"2","3"}, {"3","1"}, {"3","2"}, {"3","3"}]
-%%            },
-%%            {
-%%                4,
-%%                disabled,
-%%                [{"cluster2", {allow, []}, {block,[]}}],
-%%                [{"1","1"}, {"1","2"}, {"1","3"}, {"2","1"}, {"2","2"}, {"2","3"}, {"3","1"}, {"3","2"}, {"3","3"}]
-%%            },
-%%            {
-%%                5,
-%%                enabled,
-%%                [{"cluster2", {allow, ['*']}, {block,['*']}}],
-%%                []
-%%            },
-%%            {
-%%                6,
-%%                enabled,
-%%                [{"cluster2", {allow, ['*']}, {block,[]}}],
-%%                [{"1","1"}, {"1","2"}, {"1","3"}, {"2","1"}, {"2","2"}, {"2","3"}, {"3","1"}, {"3","2"}, {"3","3"}]
-%%            },
-%%            {
-%%                7,
-%%                enabled,
-%%                [{"cluster2", {allow, []}, {block,['*']}}],
-%%                []
-%%            },
-%%            {
-%%                8,
-%%                enabled,
-%%                [{"cluster2", {allow, []}, {block,[]}}],
-%%                []
-%%            }],
+    Tests =
+        [
+            {0, disabled, [{"cluster2", {allow, []}, {block,[]}}], []},
+            {
+                1,
+                disabled,
+                [{"cluster2", {allow, ['*']}, {block,['*']}}],
+                [{"1","1"}, {"1","2"}, {"1","3"}, {"2","1"}, {"2","2"}, {"2","3"}, {"3","1"}, {"3","2"}, {"3","3"}]
+            },
+            {
+                2,
+                disabled,
+                [{"cluster2", {allow, ['*']}, {block,[]}}],
+                [{"1","1"}, {"1","2"}, {"1","3"}, {"2","1"}, {"2","2"}, {"2","3"}, {"3","1"}, {"3","2"}, {"3","3"}]
+            },
+            {
+                3,
+                disabled,
+                [{"cluster2", {allow, []}, {block,['*']}}],
+                [{"1","1"}, {"1","2"}, {"1","3"}, {"2","1"}, {"2","2"}, {"2","3"}, {"3","1"}, {"3","2"}, {"3","3"}]
+            },
+            {
+                4,
+                disabled,
+                [{"cluster2", {allow, []}, {block,[]}}],
+                [{"1","1"}, {"1","2"}, {"1","3"}, {"2","1"}, {"2","2"}, {"2","3"}, {"3","1"}, {"3","2"}, {"3","3"}]
+            },
+            {
+                5,
+                enabled,
+                [{"cluster2", {allow, ['*']}, {block,['*']}}],
+                []
+            },
+            {
+                6,
+                enabled,
+                [{"cluster2", {allow, ['*']}, {block,[]}}],
+                [{"1","1"}, {"1","2"}, {"1","3"}, {"2","1"}, {"2","2"}, {"2","3"}, {"3","1"}, {"3","2"}, {"3","3"}]
+            },
+            {
+                7,
+                enabled,
+                [{"cluster2", {allow, []}, {block,['*']}}],
+                []
+            },
+            {
+                8,
+                enabled,
+                [{"cluster2", {allow, []}, {block,[]}}],
+                []
+            }],
 
     %% Double tests - 2 tests are run on each of these.
     %% allow is changed to {allow, ['*']}
@@ -71,100 +72,142 @@ confirm() ->
     %% expected is now the inverse of what was expected in the first test
     Tests2 =
     [
-%%        {
-%%            9,
-%%            enabled,
-%%            [{"cluster2", {allow, [{bucket, <<"bucket-1">>}]}, {block,[]}}],
-%%            [{"1","1"}, {"1","2"}, {"1","3"}]
-%%        },
-%%        {
-%%            11,
-%%            enabled,
-%%            [{"cluster2", {allow, [{bucket,all}]}, {block,[]}}],
-%%            [{"1","1"}, {"1","2"}, {"1","3"}, {"2","1"}, {"2","2"}, {"2","3"}, {"3","1"}, {"3","2"}, {"3","3"}]
-%%        },
-%%        {
-%%            13,
-%%            enabled,
-%%            [{"cluster2", {allow, [{not_bucket, <<"bucket-1">>}]}, {block,[]}}],
-%%            [{"2","1"}, {"2","2"}, {"2","3"}, {"3","1"}, {"3","2"}, {"3","3"}]
-%%        },
-%%        {
-%%            15,
-%%            enabled,
-%%            [{"cluster2", {allow, [{not_bucket, all}]}, {block,[]}}],
-%%            []
-%%        },
-%%        {
-%%            17,
-%%            enabled,
-%%            [{"cluster2", {allow, [{metadata,{filter, "2"}}]}, {block,[]}}],
-%%            [{"1","2"},{"2","2"}, {"3","2"}]
-%%        },
-%%        {
-%%            19,
-%%            enabled,
-%%            [{"cluster2", {allow, [{metadata,{filter, all}}]}, {block,[]}}],
-%%            [{"1","2"}, {"1","3"}, {"2","2"}, {"2","3"}, {"3","2"}, {"3","3"}]
-%%        },
-%%        {
-%%            21,
-%%            enabled,
-%%            [{"cluster2", {allow, [{not_metadata,{filter, "2"}}]}, {block,[]}}],
-%%            [{"1","1"}, {"1","3"}, {"2","1"}, {"2","3"}, {"3","1"}, {"3","3"}]
-%%        },
-%%        {
-%%            23,
-%%            enabled,
-%%            [{"cluster2", {allow, [{not_metadata,{filter, all}}]}, {block,[]}}],
-%%            [{"1","1"}, {"2","1"}, {"3","1"}]
-%%        },
         {
-            25,
+            9, %% bucket - match
+            enabled,
+            [{"cluster2", {allow, [{bucket, <<"bucket-1">>}]}, {block,[]}}],
+            [{"1","1"}, {"1","2"}, {"1","3"}]
+        },
+        {
+            11, %% bucket - not match
+            enabled,
+            [{"cluster2", {allow, [{bucket, <<"bucket-4">>}]}, {block,[]}}],
+            []
+        },
+        {
+            13, %% bucket - all
+            enabled,
+            [{"cluster2", {allow, [{bucket,all}]}, {block,[]}}],
+            [{"1","1"}, {"1","2"}, {"1","3"}, {"2","1"}, {"2","2"}, {"2","3"}, {"3","1"}, {"3","2"}, {"3","3"}]
+        },
+        {
+            15, %% not_bucket - match
+            enabled,
+            [{"cluster2", {allow, [{not_bucket, <<"bucket-1">>}]}, {block,[]}}],
+            [{"2","1"}, {"2","2"}, {"2","3"}, {"3","1"}, {"3","2"}, {"3","3"}]
+        },
+        {
+            17, %% not_bucket - not match
+            enabled,
+            [{"cluster2", {allow, [{not_bucket, <<"bucket-4">>}]}, {block,[]}}],
+            [{"1","1"}, {"1","2"}, {"1","3"}, {"2","1"}, {"2","2"}, {"2","3"}, {"3","1"}, {"3","2"}, {"3","3"}]
+        },
+        {
+            19, %% not_bucket - all
+            enabled,
+            [{"cluster2", {allow, [{not_bucket, all}]}, {block,[]}}],
+            []
+        },
+        {
+            21, %% metadata - match
+            enabled,
+            [{"cluster2", {allow, [{metadata,{filter, "2"}}]}, {block,[]}}],
+            [{"1","2"},{"2","2"}, {"3","2"}]
+        },
+        {
+            23, %% metadata - not match 1
+            enabled,
+            [{"cluster2", {allow, [{metadata,{filter, "4"}}]}, {block,[]}}],
+            []
+        },
+        {
+            25, %% metadata - not match 2
             enabled,
             [{"cluster2", {allow, [{metadata,{other, "2"}}]}, {block,[]}}],
             []
+        },
+        {
+            27, %% metadata - not match 3
+            enabled,
+            [{"cluster2", {allow, [{metadata,{other, all}}]}, {block,[]}}],
+            []
+        },
+        {
+            29, %% metadata - all
+            enabled,
+            [{"cluster2", {allow, [{metadata,{filter, all}}]}, {block,[]}}],
+            [{"1","2"}, {"1","3"}, {"2","2"}, {"2","3"}, {"3","2"}, {"3","3"}]
+        },
+        {
+            31, %% not_metadata - match
+            enabled,
+            [{"cluster2", {allow, [{not_metadata,{filter, "2"}}]}, {block,[]}}],
+            [{"1","1"}, {"1","3"}, {"2","1"}, {"2","3"}, {"3","1"}, {"3","3"}]
+        },
+        {
+            33, %% not_metadata - not match 1
+            enabled,
+            [{"cluster2", {allow, [{not_metadata,{filter, "4"}}]}, {block,[]}}],
+            [{"1","1"}, {"1","2"}, {"1","3"}, {"2","1"}, {"2","2"}, {"2","3"}, {"3","1"}, {"3","2"}, {"3","3"}]
+        },
+        {
+            35, %% not_metadata - not match 2
+            enabled,
+            [{"cluster2", {allow, [{not_metadata,{other, "2"}}]}, {block,[]}}],
+            [{"1","1"}, {"1","2"}, {"1","3"}, {"2","1"}, {"2","2"}, {"2","3"}, {"3","1"}, {"3","2"}, {"3","3"}]
+        },
+        {
+            37, %% not_metadata - not match 3
+            enabled,
+            [{"cluster2", {allow, [{not_metadata,{other, all}}]}, {block,[]}}],
+            [{"1","1"}, {"1","2"}, {"1","3"}, {"2","1"}, {"2","2"}, {"2","3"}, {"3","1"}, {"3","2"}, {"3","3"}]
+        },
+        {
+            39, %% not_metadata - all
+            enabled,
+            [{"cluster2", {allow, [{not_metadata,{filter, all}}]}, {block,[]}}],
+            [{"1","1"}, {"2","1"}, {"3","1"}]
         }
-%%        {
-%%            27,
-%%            enabled,
-%%            [{"cluster2", {allow, [{metadata,{other, all}}]}, {block,[]}}],
-%%            []
-%%        },
-%%        {
-%%            29,
-%%            enabled,
-%%            [{"cluster2", {allow, [{not_metadata,{other, "2"}}]}, {block,[]}}],
-%%            [{"1","1"}, {"1","2"}, {"1","3"}, {"2","1"}, {"2","2"}, {"2","3"}, {"3","1"}, {"3","2"}, {"3","3"}]
-%%        },
-%%        {
-%%            31,
-%%            enabled,
-%%            [{"cluster2", {allow, [{not_metadata,{other, all}}]}, {block,[]}}],
-%%            [{"1","1"}, {"1","2"}, {"1","3"}, {"2","1"}, {"2","2"}, {"2","3"}, {"3","1"}, {"3","2"}, {"3","3"}]
-%%        }
-%%        {
-%%            17,
-%%            enabled,
-%%            [{"cluster2", {allow, [{bucket,all}]}, {block,[]}}],
-%%            [{"1","1"}, {"1","2"}, {"1","3"}, {"2","1"}, {"2","2"}, {"2","3"}, {"3","1"}, {"3","2"}, {"3","3"}]
-%%        },
-%%        {
-%%            17,
-%%            enabled,
-%%            [{"cluster2", {allow, [{bucket,all}]}, {block,[]}}],
-%%            [{"1","1"}, {"1","2"}, {"1","3"}, {"2","1"}, {"2","2"}, {"2","3"}, {"3","1"}, {"3","2"}, {"3","3"}]
-%%        }
-%%        {
-%%            17,
-%%            enabled,
-%%            [{"cluster2", {allow, [{bucket,all}]}, {block,[]}}],
-%%            [{"1","1"}, {"1","2"}, {"1","3"}, {"2","1"}, {"2","2"}, {"2","3"}, {"3","1"}, {"3","2"}, {"3","3"}]
-%%        },
     ],
 
-%%    [ run_test(Test, [Cluster1, Cluster2, Cluster3]) || Test <- Tests],
-    [ run_test2(Test, [Cluster1, Cluster2, Cluster3]) || Test <- Tests2],
+    Tests3 =
+    [
+        {
+            41,
+            enabled,
+            [{"cluster2", {allow, [{bucket,<<"bucket-1">>}, {bucket,<<"bucket-2">>}]}, {block,[]}}],
+            [{"1","1"}, {"1","2"}, {"1","3"}, {"2","1"}, {"2","2"}, {"2","3"}]
+        },
+        {
+            42,
+            enabled,
+            [{"cluster2", {allow, [{bucket,<<"bucket-1">>}, {metadata,{filter, "2"}}]}, {block,[{bucket, <<"bucket-3">>}]}}],
+            [{"1","1"}, {"1","2"}, {"1","3"},{"2","2"}]
+        },
+        {
+            43,
+            enabled,
+            [{"cluster2", {allow, [{bucket,<<"bucket-1">>}, {metadata,{filter, "2"}}]}, {block,[[{bucket, <<"bucket-1">>}, {metadata, {filter, all}}]]}}],
+            [{"1","1"},{"2","2"},{"3","2"}]
+        },
+        {
+            44,
+            enabled,
+            [{"cluster2", {allow, [[{bucket, <<"bucket-1">>}, {metadata, {filter, all}}]]}, {block,[[{bucket, <<"bucket-1">>}, {metadata, {filter, "2"}}]]}}],
+            [{"1","3"}]
+        },
+        {
+            45,
+            enabled,
+            [{"cluster2", {allow, [[{bucket, <<"bucket-1">>}, {metadata, {filter, all}}], {bucket, all}]}, {block,[[{bucket, <<"bucket-1">>}, {metadata, {filter, "2"}}]]}}],
+            [{"1","1"}, {"1","3"}, {"2","1"}, {"2","2"}, {"2","3"}, {"3","1"}, {"3","2"}, {"3","3"}]
+        }
+    ],
+
+
+    [run_test(Test, [Cluster1, Cluster2, Cluster3]) || Test <- Tests],
+    [run_test2(Test, [Cluster1, Cluster2, Cluster3]) || Test <- Tests2],
+    [run_test(Test, [Cluster1, Cluster2, Cluster3]) || Test <- Tests3],
     pass.
 
 run_test2(Test1={N,Status,[{Name, {allow, Allowed}, {block, []}}],Expected}, Clusters)->
@@ -202,7 +245,7 @@ fullsync_test({0,_,_,_}, [Cluster1, Cluster2, Cluster3]) ->
     put_all_objects(Cluster1, 0),
     %% ================================================================== %%
     start_fullsync(Cluster1, "cluster2"),
-    timer:sleep(?REPL_SLEEP),
+    timer:sleep(?FS_REPL_SLEEP),
     %% ================================================================== %%
     List=
         [
@@ -223,7 +266,7 @@ fullsync_test({TestNumber, Status, Config, ExpectedList}, [Cluster1, Cluster2, C
     put_all_objects(Cluster1, TestNumber),
     %% ================================================================== %%
     start_fullsync(Cluster1, "cluster2"),
-    timer:sleep(?REPL_SLEEP),
+    timer:sleep(?FS_REPL_SLEEP),
     %% ================================================================== %%
     List1 =
         [
@@ -243,7 +286,7 @@ realtime_test({0,_,_,_}, _, [Cluster1, Cluster2, Cluster3]) ->
     start_realtime(Cluster2, "cluster3"),
     %% ================================================================== %%
     put_all_objects(Cluster1, 0),
-    timer:sleep(?REPL_SLEEP),
+    timer:sleep(?RT_REPL_SLEEP),
     %% ================================================================== %%
     List=
         [
@@ -274,7 +317,7 @@ realtime_test({TestNumber, Status, Config, ExpectedList}, SendToCluster3, [Clust
     start_realtime(Cluster2, "cluster3"),
     %% ================================================================== %%
     put_all_objects(Cluster1, TestNumber),
-    timer:sleep(?REPL_SLEEP),
+    timer:sleep(?RT_REPL_SLEEP),
     %% ================================================================== %%
     List1 =
         [
@@ -286,12 +329,12 @@ realtime_test({TestNumber, Status, Config, ExpectedList}, SendToCluster3, [Clust
     Expected2 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- ExpectedList],
     Expected3 =
         case SendToCluster3 of
-            true -> [{make_bucket(BN), make_key(KN)} || {BN, KN} <- ExpectedList];
+            true -> Expected2;
             false-> []
         end,
     ?assertEqual(true, check_objects("cluster1", Cluster1, Expected1)),
     ?assertEqual(true, check_objects("cluster2", Cluster2, Expected2)),
-    ?assertEqual(true, check_objects("cluster3", Cluster2, Expected3)),
+    ?assertEqual(true, check_objects("cluster3", Cluster3, Expected3)),
     cleanup([Cluster1, Cluster2, Cluster3]),
     pass.
 
@@ -473,12 +516,12 @@ write_terms(Filename, List) ->
 
 cleanup(Clusters=[C1, C2, _]) ->
     ClusterNames = ["cluster1", "cluster2", "cluster3"],
-    delete_data(Clusters, ClusterNames),
-    clear_config(Clusters),
-    delete_files(),
     stop_fullsync(C1, "cluster2"),
     stop_realtime(C1, "cluster2"),
     stop_realtime(C2, "cluster3"),
+    delete_data(Clusters, ClusterNames),
+    clear_config(Clusters),
+    delete_files(),
     lager:info("Cleanup complete ~n", []),
     check(Clusters, ClusterNames),
     ok.
