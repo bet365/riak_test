@@ -110,7 +110,7 @@ test(2) ->
     start_fullsync(Cluster1, "cluster2"),
     lager:info("Starting fullsync Cluster1 -> Cluster2 ~n", []),
     timer:sleep(30000),
->
+
     % check that the other cluster has the data
     L1 = [C2:get(<<"bucket">>, <<X:32>>) || X <- lists:seq(1,500)],
     [?assertEqual(ok, Answer) || {Answer, _} <- L1],

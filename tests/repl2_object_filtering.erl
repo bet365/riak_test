@@ -5,8 +5,8 @@
 
 -define(ALL_BUCKETS_NUMS, ["1","2", "3"]).
 -define(ALL_KEY_NUMS, ["1","2","3"]).
--define(FS_REPL_SLEEP, 5000).
--define(RT_REPL_SLEEP, 20000).
+-define(FS_REPL_SLEEP, 10000).
+-define(RT_REPL_SLEEP, 30000).
 
 confirm() ->
     delete_files(),
@@ -500,7 +500,7 @@ set_object_filtering_status(Cluster, Status) ->
     end.
 
 set_object_filtering_config(Cluster, Config) ->
-    rpc:call(hd(Cluster), riak_repl_console, object_filtering_load_config, [[Config]]).
+    rpc:call(hd(Cluster), riak_repl_console, object_filtering_load_config, [["repl", Config]]).
 
 
 
