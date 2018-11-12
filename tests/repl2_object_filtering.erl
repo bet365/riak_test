@@ -221,13 +221,19 @@ run_test(Test, Clusters) ->
     run_realtime_test(Test, Clusters).
 
 run_fullsync_test(Test={N,_,_,_}, Clusters) ->
-    print_test(fullsync, N),
-    ?assertEqual(pass, fullsync_test(Test, Clusters)).
+    print_test(fullsync_ofmode_repl, N),
+    ?assertEqual(pass, fullsync_test(Test, "repl", Clusters)),
+    print_test(fullsync_ofmode_fullsync, N),
+    ?assertEqual(pass, fullsync_test(Test, "fullsync", Clusters)).
 run_realtime_test(Test={N,_,_,_}, Clusters) ->
-    print_test(realtime_a, N),
-    ?assertEqual(pass, realtime_test(Test, true, Clusters)),
-    print_test(realtime_b, N),
-    ?assertEqual(pass, realtime_test(Test, false, Clusters)).
+    print_test(realtime_a_ofmode_repl, N),
+    ?assertEqual(pass, realtime_test(Test, true, "repl", Clusters)),
+    print_test(realtime_a_ofmode_realtime, N),
+    ?assertEqual(pass, realtime_test(Test, true, "realtime", Clusters)),
+    print_test(realtime_b_ofmode_repl, N),
+    ?assertEqual(pass, realtime_test(Test, false, "repl", Clusters)),
+    print_test(realtime_b_ofmode_realtime, N),
+    ?assertEqual(pass, realtime_test(Test, false, "realtime", Clusters)).
 
 print_test(Name, Number) ->
     lager:info("---------------------------------------"),
@@ -241,7 +247,7 @@ print_test(Name, Number) ->
 %% ================================================================================================================== %%
 %%                                        Fullsync Tests                                                              %%
 %% ================================================================================================================== %%
-fullsync_test({0,_,_,_}, [Cluster1, Cluster2, Cluster3]) ->
+fullsync_test({0,_,_,_}, _, [Cluster1, Cluster2, Cluster3]) ->
     put_all_objects(Cluster1, 0),
     %% ================================================================== %%
     start_fullsync(Cluster1, "cluster2"),
@@ -259,9 +265,9 @@ fullsync_test({0,_,_,_}, [Cluster1, Cluster2, Cluster3]) ->
     ?assertEqual(true, check_objects("cluster2", Cluster2, Expected2)),
     cleanup([Cluster1, Cluster2, Cluster3]),
     pass;
-fullsync_test({TestNumber, Status, Config, ExpectedList}, [Cluster1, Cluster2, Cluster3]) ->
+fullsync_test({TestNumber, Status, Config, ExpectedList}, Mode, [Cluster1, Cluster2, Cluster3]) ->
     write_terms("/tmp/config1", Config),
-    set_object_filtering(Cluster1, Status, "/tmp/config1"),
+    set_object_filtering(Cluster1, Status, "/tmp/config1", Mode),
     %% ================================================================== %%
     put_all_objects(Cluster1, TestNumber),
     %% ================================================================== %%
@@ -281,7 +287,7 @@ fullsync_test({TestNumber, Status, Config, ExpectedList}, [Cluster1, Cluster2, C
     cleanup([Cluster1, Cluster2, Cluster3]),
     pass.
 
-realtime_test({0,_,_,_}, _, [Cluster1, Cluster2, Cluster3]) ->
+realtime_test({0,_,_,_}, _, _,[Cluster1, Cluster2, Cluster3]) ->
     start_realtime(Cluster1, "cluster2"),
     start_realtime(Cluster2, "cluster3"),
     %% ================================================================== %%
@@ -302,16 +308,16 @@ realtime_test({0,_,_,_}, _, [Cluster1, Cluster2, Cluster3]) ->
     ?assertEqual(true, check_objects("cluster3", Cluster2, Expected3)),
     cleanup([Cluster1, Cluster2, Cluster3]),
     pass;
-realtime_test({TestNumber, Status, Config, ExpectedList}, SendToCluster3, [Cluster1, Cluster2, Cluster3]) ->
+realtime_test({TestNumber, Status, Config, ExpectedList}, SendToCluster3, Mode, [Cluster1, Cluster2, Cluster3]) ->
     write_terms("/tmp/config1", Config),
-    set_object_filtering(Cluster1, Status, "/tmp/config1"),
+    set_object_filtering(Cluster1, Status, "/tmp/config1", "realtime"),
     Config2 =
         case SendToCluster3 of
             true -> [{"cluster3", {allow, ['*']}, {block, []}}];
             false -> [{"cluster3", {allow, []}, {block, ['*']}}]
         end,
     write_terms("/tmp/config2", Config2),
-    set_object_filtering(Cluster2, enabled, "/tmp/config2"),
+    set_object_filtering(Cluster2, enabled, "/tmp/config2", Mode),
     %% ================================================================== %%
     start_realtime(Cluster1, "cluster2"),
     start_realtime(Cluster2, "cluster3"),
@@ -487,9 +493,9 @@ stop_fullsync(Cluster, C2Name) ->
     disable_fullsync(Cluster, C2Name),
     rt:wait_until_ring_converged(Cluster).
 
-set_object_filtering(Cluster, Status, Config) ->
+set_object_filtering(Cluster, Status, Config, Mode) ->
     set_object_filtering_status(Cluster, Status),
-    set_object_filtering_config(Cluster, Config).
+    set_object_filtering_config(Cluster, Config, Mode).
 
 set_object_filtering_status(Cluster, Status) ->
     case Status of
@@ -499,8 +505,8 @@ set_object_filtering_status(Cluster, Status) ->
             rpc:call(hd(Cluster), riak_repl_console, object_filtering_disable, [[]])
     end.
 
-set_object_filtering_config(Cluster, Config) ->
-    rpc:call(hd(Cluster), riak_repl_console, object_filtering_load_config, [["repl", Config]]).
+set_object_filtering_config(Cluster, Config, Mode) ->
+    rpc:call(hd(Cluster), riak_repl_console, object_filtering_load_config, [[Mode, Config]]).
 
 
 
