@@ -5,8 +5,6 @@
 
 -define(ALL_BUCKETS_NUMS, ["1","2", "3"]).
 -define(ALL_KEY_NUMS, ["1","2","3"]).
--define(FS_REPL_SLEEP, 10000).
--define(RT_REPL_SLEEP, 30000).
 
 confirm() ->
     delete_files(),
@@ -210,22 +208,37 @@ confirm() ->
     [run_test(Test, [Cluster1, Cluster2, Cluster3]) || Test <- Tests3],
     pass.
 
-run_test2(Test1={N,Status,[{Name, {allow, Allowed}, {block, []}}],Expected}, Clusters)->
-    run_test(Test1, Clusters),
+
+
+run_all_tests_realtime([Test1, Test2, Test3], [Cluster1, Cluster2, Cluster3]) ->
+    start_realtime(Cluster1, "cluster2"),
+    start_realtime(Cluster2, "cluster3"),
+    [run_test(realtime, Test, [Cluster1, Cluster2, Cluster3]) || Test <- Test1],
+    [run_test2(realtime, Test, [Cluster1, Cluster2, Cluster3]) || Test <- Test2],
+    [run_test(realtime, Test, [Cluster1, Cluster2, Cluster3]) || Test <- Test3],
+    stop_realtime(Cluster1, "cluster2"),
+    stop_realtime(Cluster2, "cluster3").
+
+run_all_tests_fullsync([Test1, Test2, Test3], [Cluster1, Cluster2, Cluster3]) ->
+    start_fullsync(Cluster1, "cluster2"),
+    [run_test(realtime, Test, [Cluster1, Cluster2, Cluster3]) || Test <- Test1],
+    [run_test2(realtime, Test, [Cluster1, Cluster2, Cluster3]) || Test <- Test2],
+    [run_test(realtime, Test, [Cluster1, Cluster2, Cluster3]) || Test <- Test3],
+    stop_fullsync(Cluster1, "cluster2").
+
+run_test2(ReplMode, Test1={N,Status,[{Name, {allow, Allowed}, {block, []}}],Expected}, Clusters)->
+    run_test(ReplMode, (Test1, Clusters),
     Expected2 =
         [{"1","1"}, {"1","2"}, {"1","3"},{"2","1"}, {"2","2"}, {"2","3"},{"3","1"}, {"3","2"}, {"3","3"}] -- Expected,
     Test2 = {N+1, Status, [{Name, {allow, ['*']}, {block, Allowed}}], Expected2},
-    run_test(Test2, Clusters).
-run_test(Test, Clusters) ->
-    run_fullsync_test(Test, Clusters),
-    run_realtime_test(Test, Clusters).
+    run_test(ReplMode, Test2, Clusters).
 
-run_fullsync_test(Test={N,_,_,_}, Clusters) ->
+run_test(fullsync, Test={N,_,_,_}, Clusters) ->
     print_test(fullsync_ofmode_repl, N),
     ?assertEqual(pass, fullsync_test(Test, "repl", Clusters)),
     print_test(fullsync_ofmode_fullsync, N),
-    ?assertEqual(pass, fullsync_test(Test, "fullsync", Clusters)).
-run_realtime_test(Test={N,_,_,_}, Clusters) ->
+    ?assertEqual(pass, fullsync_test(Test, "fullsync", Clusters));
+run_test(realtime, Test={N,_,_,_}, Clusters) ->
     print_test(realtime_a_ofmode_repl, N),
     ?assertEqual(pass, realtime_test(Test, true, "repl", Clusters)),
     print_test(realtime_a_ofmode_realtime, N),
@@ -245,13 +258,10 @@ print_test(Name, Number) ->
     lager:info("---------------------------------------").
 
 %% ================================================================================================================== %%
-%%                                        Fullsync Tests                                                              %%
+%%                                              Tests                                                                 %%
 %% ================================================================================================================== %%
 fullsync_test({0,_,_,_}, _, [Cluster1, Cluster2, Cluster3]) ->
     put_all_objects(Cluster1, 0),
-    %% ================================================================== %%
-    start_fullsync(Cluster1, "cluster2"),
-    timer:sleep(?FS_REPL_SLEEP),
     %% ================================================================== %%
     List=
         [
@@ -261,8 +271,8 @@ fullsync_test({0,_,_,_}, _, [Cluster1, Cluster2, Cluster3]) ->
         ],
     Expected1 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- List],
     Expected2 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- List],
-    ?assertEqual(true, check_objects("cluster1", Cluster1, Expected1)),
-    ?assertEqual(true, check_objects("cluster2", Cluster2, Expected2)),
+    ?assertEqual(true, check_objects("cluster1", Cluster1, Expected1, erlang:now(), 30)),
+    ?assertEqual(true, check_objects("cluster2", Cluster2, Expected2, erlang:now(), 30)),
     cleanup([Cluster1, Cluster2, Cluster3]),
     pass;
 fullsync_test({TestNumber, Status, Config, ExpectedList}, Mode, [Cluster1, Cluster2, Cluster3]) ->
@@ -270,9 +280,6 @@ fullsync_test({TestNumber, Status, Config, ExpectedList}, Mode, [Cluster1, Clust
     set_object_filtering(Cluster1, Status, "/tmp/config1", Mode),
     %% ================================================================== %%
     put_all_objects(Cluster1, TestNumber),
-    %% ================================================================== %%
-    start_fullsync(Cluster1, "cluster2"),
-    timer:sleep(?FS_REPL_SLEEP),
     %% ================================================================== %%
     List1 =
         [
@@ -282,17 +289,13 @@ fullsync_test({TestNumber, Status, Config, ExpectedList}, Mode, [Cluster1, Clust
         ],
     Expected1 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- List1],
     Expected2 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- ExpectedList],
-    ?assertEqual(true, check_objects("cluster1", Cluster1, Expected1)),
-    ?assertEqual(true, check_objects("cluster2", Cluster2, Expected2)),
+    ?assertEqual(true, check_objects("cluster1", Cluster1, Expected1, erlang:now(), 30)),
+    ?assertEqual(true, check_objects("cluster2", Cluster2, Expected2, erlang:now(), 30)),
     cleanup([Cluster1, Cluster2, Cluster3]),
     pass.
 
 realtime_test({0,_,_,_}, _, _,[Cluster1, Cluster2, Cluster3]) ->
-    start_realtime(Cluster1, "cluster2"),
-    start_realtime(Cluster2, "cluster3"),
-    %% ================================================================== %%
     put_all_objects(Cluster1, 0),
-    timer:sleep(?RT_REPL_SLEEP),
     %% ================================================================== %%
     List=
         [
@@ -303,9 +306,9 @@ realtime_test({0,_,_,_}, _, _,[Cluster1, Cluster2, Cluster3]) ->
     Expected1 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- List],
     Expected2 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- List],
     Expected3 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- List],
-    ?assertEqual(true, check_objects("cluster1", Cluster1, Expected1)),
-    ?assertEqual(true, check_objects("cluster2", Cluster2, Expected2)),
-    ?assertEqual(true, check_objects("cluster3", Cluster2, Expected3)),
+    ?assertEqual(true, check_objects("cluster1", Cluster1, Expected1, erlang:now(), 30)),
+    ?assertEqual(true, check_objects("cluster2", Cluster2, Expected2, erlang:now(), 30)),
+    ?assertEqual(true, check_objects("cluster3", Cluster2, Expected3, erlang:now(), 60)),
     cleanup([Cluster1, Cluster2, Cluster3]),
     pass;
 realtime_test({TestNumber, Status, Config, ExpectedList}, SendToCluster3, Mode, [Cluster1, Cluster2, Cluster3]) ->
@@ -319,11 +322,7 @@ realtime_test({TestNumber, Status, Config, ExpectedList}, SendToCluster3, Mode, 
     write_terms("/tmp/config2", Config2),
     set_object_filtering(Cluster2, enabled, "/tmp/config2", Mode),
     %% ================================================================== %%
-    start_realtime(Cluster1, "cluster2"),
-    start_realtime(Cluster2, "cluster3"),
-    %% ================================================================== %%
     put_all_objects(Cluster1, TestNumber),
-    timer:sleep(?RT_REPL_SLEEP),
     %% ================================================================== %%
     List1 =
         [
@@ -338,9 +337,9 @@ realtime_test({TestNumber, Status, Config, ExpectedList}, SendToCluster3, Mode, 
             true -> Expected2;
             false-> []
         end,
-    ?assertEqual(true, check_objects("cluster1", Cluster1, Expected1)),
-    ?assertEqual(true, check_objects("cluster2", Cluster2, Expected2)),
-    ?assertEqual(true, check_objects("cluster3", Cluster3, Expected3)),
+    ?assertEqual(true, check_objects("cluster1", Cluster1, Expected1, erlang:now(), 30)),
+    ?assertEqual(true, check_objects("cluster2", Cluster2, Expected2, erlang:now(), 30)),
+    ?assertEqual(true, check_objects("cluster3", Cluster3, Expected3, erlang:now(), 60)),
     cleanup([Cluster1, Cluster2, Cluster3]),
     pass.
 
@@ -361,10 +360,22 @@ delete_all_objects(ClusterName, Cluster) ->
     lager:info("Deleted all data for ~p", [ClusterName]).
 
 
-check_objects(ClusterName, Cluster, Expected) ->
+check_objects(ClusterName, Cluster, Expected, Time, Timeout) ->
+    check_object_helper(ClusterName, Cluster, Expected, Time, Timeout).
+
+check_object_helper(ClusterName, Cluster, Expected, Time, Timeout) ->
     Actual = get_all_objects(Cluster),
-    print_objects(ClusterName, Actual),
-    lists:sort(Actual) == lists:sort(Expected).
+    Result = lists:sort(Actual) == lists:sort(Expected),
+    case {Result, timer:now_diff(erlang:now(), Time) > Timeout*1000*1000} of
+        {true, _} ->
+            print_objects(ClusterName, Actual),
+            true;
+        {false, false} ->
+            check_object_helper(ClusterName, Cluster, Expected, Time, Timeout);
+        {false, true} ->
+            print_objects(ClusterName, Actual),
+            false
+    end.
 
 get_all_objects(Cluster) ->
     Node = hd(Cluster),
@@ -520,11 +531,8 @@ write_terms(Filename, List) ->
     Text = lists:map(Format, List),
     file:write_file(Filename, Text).
 
-cleanup(Clusters=[C1, C2, _]) ->
+cleanup(Clusters) ->
     ClusterNames = ["cluster1", "cluster2", "cluster3"],
-    stop_fullsync(C1, "cluster2"),
-    stop_realtime(C1, "cluster2"),
-    stop_realtime(C2, "cluster3"),
     delete_data(Clusters, ClusterNames),
     clear_config(Clusters),
     delete_files(),
@@ -539,7 +547,7 @@ delete_data([Cluster|Rest1], [ClusterName|Rest2]) ->
 
 check([], []) -> ?assertEqual(true, true);
 check([Cluster|Rest1], [ClusterName|Rest2]) ->
-    ?assertEqual(true, check_objects(ClusterName, Cluster, [])), check(Rest1, Rest2).
+    ?assertEqual(true, check_objects(ClusterName, Cluster, [], erlang:now(), 10)), check(Rest1, Rest2).
 
 delete_files() ->
     file:delete("/tmp/config1"),
