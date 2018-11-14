@@ -12,7 +12,7 @@ confirm() ->
     connect_clusters({hd(Cluster1),"cluster1"}, {hd(Cluster2), "cluster2"}),
     connect_clusters({hd(Cluster2),"cluster2"}, {hd(Cluster3), "cluster3"}),
     %% Single tests - these are run as {TestNumeber, Status, Config, ExpectedObjects}
-    Tests =
+    Test1 =
         [
             {0, disabled, [{"cluster2", {allow, []}, {block,[]}}], []},
             {
@@ -68,7 +68,7 @@ confirm() ->
     %% allow is changed to {allow, ['*']}
     %% block is changed to {block, Allowed}
     %% expected is now the inverse of what was expected in the first test
-    Tests2 =
+    Test2 =
     [
         {
             9, %% bucket - match
@@ -168,7 +168,7 @@ confirm() ->
         }
     ],
 
-    Tests3 =
+    Test3 =
     [
         {
             41,
@@ -202,10 +202,10 @@ confirm() ->
         }
     ],
 
-
-    [run_test(Test, [Cluster1, Cluster2, Cluster3]) || Test <- Tests],
-    [run_test2(Test, [Cluster1, Cluster2, Cluster3]) || Test <- Tests2],
-    [run_test(Test, [Cluster1, Cluster2, Cluster3]) || Test <- Tests3],
+    Tests = [Test1, Test2, Test3],
+    Clusters = [Cluster1, Cluster2, Cluster3],
+    run_all_tests_realtime(Tests, Clusters),
+    run_all_tests_fullsync(Tests, Clusters),
     pass.
 
 
@@ -227,7 +227,7 @@ run_all_tests_fullsync([Test1, Test2, Test3], [Cluster1, Cluster2, Cluster3]) ->
     stop_fullsync(Cluster1, "cluster2").
 
 run_test2(ReplMode, Test1={N,Status,[{Name, {allow, Allowed}, {block, []}}],Expected}, Clusters)->
-    run_test(ReplMode, (Test1, Clusters),
+    run_test(ReplMode, Test1, Clusters),
     Expected2 =
         [{"1","1"}, {"1","2"}, {"1","3"},{"2","1"}, {"2","2"}, {"2","3"},{"3","1"}, {"3","2"}, {"3","3"}] -- Expected,
     Test2 = {N+1, Status, [{Name, {allow, ['*']}, {block, Allowed}}], Expected2},
