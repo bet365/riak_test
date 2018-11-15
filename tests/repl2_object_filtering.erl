@@ -204,8 +204,8 @@ confirm() ->
 
     Tests = [Test1, Test2, Test3],
     Clusters = [Cluster1, Cluster2, Cluster3],
-    run_all_tests_realtime(Tests, Clusters),
     run_all_tests_fullsync(Tests, Clusters),
+    run_all_tests_realtime(Tests, Clusters),
     pass.
 
 
@@ -220,11 +220,10 @@ run_all_tests_realtime([Test1, Test2, Test3], [Cluster1, Cluster2, Cluster3]) ->
     stop_realtime(Cluster2, "cluster3").
 
 run_all_tests_fullsync([Test1, Test2, Test3], [Cluster1, Cluster2, Cluster3]) ->
-    start_fullsync(Cluster1, "cluster2"),
-    [run_test(realtime, Test, [Cluster1, Cluster2, Cluster3]) || Test <- Test1],
-    [run_test2(realtime, Test, [Cluster1, Cluster2, Cluster3]) || Test <- Test2],
-    [run_test(realtime, Test, [Cluster1, Cluster2, Cluster3]) || Test <- Test3],
-    stop_fullsync(Cluster1, "cluster2").
+    [run_test(fullsync, Test, [Cluster1, Cluster2, Cluster3]) || Test <- Test1],
+    [run_test2(fullsync, Test, [Cluster1, Cluster2, Cluster3]) || Test <- Test2],
+    [run_test(fullsync, Test, [Cluster1, Cluster2, Cluster3]) || Test <- Test3].
+
 
 run_test2(ReplMode, Test1={N,Status,[{Name, {allow, Allowed}, {block, []}}],Expected}, Clusters)->
     run_test(ReplMode, Test1, Clusters),
@@ -233,26 +232,37 @@ run_test2(ReplMode, Test1={N,Status,[{Name, {allow, Allowed}, {block, []}}],Expe
     Test2 = {N+1, Status, [{Name, {allow, ['*']}, {block, Allowed}}], Expected2},
     run_test(ReplMode, Test2, Clusters).
 
-run_test(fullsync, Test={N,_,_,_}, Clusters) ->
-    print_test(fullsync_ofmode_repl, N),
+run_test(fullsync, Test, Clusters) ->
     ?assertEqual(pass, fullsync_test(Test, "repl", Clusters)),
-    print_test(fullsync_ofmode_fullsync, N),
     ?assertEqual(pass, fullsync_test(Test, "fullsync", Clusters));
-run_test(realtime, Test={N,_,_,_}, Clusters) ->
-    print_test(realtime_a_ofmode_repl, N),
+
+run_test(realtime, Test, Clusters) ->
     ?assertEqual(pass, realtime_test(Test, true, "repl", Clusters)),
-    print_test(realtime_a_ofmode_realtime, N),
     ?assertEqual(pass, realtime_test(Test, true, "realtime", Clusters)),
-    print_test(realtime_b_ofmode_repl, N),
     ?assertEqual(pass, realtime_test(Test, false, "repl", Clusters)),
-    print_test(realtime_b_ofmode_realtime, N),
     ?assertEqual(pass, realtime_test(Test, false, "realtime", Clusters)).
 
-print_test(Name, Number) ->
+print_test(Number, Mode) ->
+    ReplMode = fullsync,
     lager:info("---------------------------------------"),
     lager:info("---------------------------------------"),
     lager:info("---------------------------------------"),
-    lager:info("-------- Test ~p ~p ---------------", [Name, Number]),
+    lager:info("Test: ~p ~n", [Number]),
+    lager:info("Repl Mode: ~p ~n", [ReplMode]),
+    lager:info("Object Filtering Config: ~p ~n", [Mode]),
+    lager:info("---------------------------------------"),
+    lager:info("---------------------------------------"),
+    lager:info("---------------------------------------").
+
+print_test(Number, Mode, SendToCluster3) ->
+    ReplMode = realtime,
+    lager:info("---------------------------------------"),
+    lager:info("---------------------------------------"),
+    lager:info("---------------------------------------"),
+    lager:info("Test: ~p ~n", [Number]),
+    lager:info("Repl Mode: ~p ~n", [ReplMode]),
+    lager:info("Object Filtering Config: ~p ~n", [Mode]),
+    lager:info("Send To Cluster 3: ~p ~n", [SendToCluster3]),
     lager:info("---------------------------------------"),
     lager:info("---------------------------------------"),
     lager:info("---------------------------------------").
@@ -260,8 +270,10 @@ print_test(Name, Number) ->
 %% ================================================================================================================== %%
 %%                                              Tests                                                                 %%
 %% ================================================================================================================== %%
-fullsync_test({0,_,_,_}, _, [Cluster1, Cluster2, Cluster3]) ->
-    put_all_objects(Cluster1, 0),
+fullsync_test({0,_,_,_}, Mode, [Cluster1, Cluster2, Cluster3]) ->
+    print_test(0, Mode),
+    put_all_objects(Cluster1, 0, fullsync, Mode),
+    start_fullsync(Cluster1, "cluster2"),
     %% ================================================================== %%
     List=
         [
@@ -274,12 +286,16 @@ fullsync_test({0,_,_,_}, _, [Cluster1, Cluster2, Cluster3]) ->
     ?assertEqual(true, check_objects("cluster1", Cluster1, Expected1, erlang:now(), 30)),
     ?assertEqual(true, check_objects("cluster2", Cluster2, Expected2, erlang:now(), 30)),
     cleanup([Cluster1, Cluster2, Cluster3]),
+    stop_fullsync(Cluster1, "cluster2"),
     pass;
-fullsync_test({TestNumber, Status, Config, ExpectedList}, Mode, [Cluster1, Cluster2, Cluster3]) ->
+fullsync_test({TestNumber, Status, Config, ExpectedList}, Mode, C=[Cluster1, Cluster2, Cluster3]) ->
+    print_test(TestNumber, Mode),
     write_terms("/tmp/config1", Config),
     set_object_filtering(Cluster1, Status, "/tmp/config1", Mode),
+    check_object_filtering_config(C),
     %% ================================================================== %%
-    put_all_objects(Cluster1, TestNumber),
+    put_all_objects(Cluster1, TestNumber, fullsync, Mode),
+    start_fullsync(Cluster1, "cluster2"),
     %% ================================================================== %%
     List1 =
         [
@@ -292,10 +308,12 @@ fullsync_test({TestNumber, Status, Config, ExpectedList}, Mode, [Cluster1, Clust
     ?assertEqual(true, check_objects("cluster1", Cluster1, Expected1, erlang:now(), 30)),
     ?assertEqual(true, check_objects("cluster2", Cluster2, Expected2, erlang:now(), 30)),
     cleanup([Cluster1, Cluster2, Cluster3]),
+    stop_fullsync(Cluster1, "cluster2"),
     pass.
 
-realtime_test({0,_,_,_}, _, _,[Cluster1, Cluster2, Cluster3]) ->
-    put_all_objects(Cluster1, 0),
+realtime_test({0,_,_,_}, SendToCluster3, Mode, [Cluster1, Cluster2, Cluster3]) ->
+    print_test(0, Mode, SendToCluster3),
+    put_all_objects(Cluster1, 0, {realtime, SendToCluster3}, Mode),
     %% ================================================================== %%
     List=
         [
@@ -308,10 +326,11 @@ realtime_test({0,_,_,_}, _, _,[Cluster1, Cluster2, Cluster3]) ->
     Expected3 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- List],
     ?assertEqual(true, check_objects("cluster1", Cluster1, Expected1, erlang:now(), 30)),
     ?assertEqual(true, check_objects("cluster2", Cluster2, Expected2, erlang:now(), 30)),
-    ?assertEqual(true, check_objects("cluster3", Cluster2, Expected3, erlang:now(), 120)),
+    ?assertEqual(true, check_objects("cluster3", Cluster2, Expected3, erlang:now(), 30)),
     cleanup([Cluster1, Cluster2, Cluster3]),
     pass;
-realtime_test({TestNumber, Status, Config, ExpectedList}, SendToCluster3, Mode, [Cluster1, Cluster2, Cluster3]) ->
+realtime_test({TestNumber, Status, Config, ExpectedList}, SendToCluster3, Mode, C=[Cluster1, Cluster2, Cluster3]) ->
+    print_test(TestNumber, Mode, SendToCluster3),
     write_terms("/tmp/config1", Config),
     set_object_filtering(Cluster1, Status, "/tmp/config1", "realtime"),
     Config2 =
@@ -321,8 +340,9 @@ realtime_test({TestNumber, Status, Config, ExpectedList}, SendToCluster3, Mode, 
         end,
     write_terms("/tmp/config2", Config2),
     set_object_filtering(Cluster2, enabled, "/tmp/config2", Mode),
+    check_object_filtering_config(C),
     %% ================================================================== %%
-    put_all_objects(Cluster1, TestNumber),
+    put_all_objects(Cluster1, TestNumber, {realtime, SendToCluster3}, Mode),
     %% ================================================================== %%
     List1 =
         [
@@ -339,7 +359,7 @@ realtime_test({TestNumber, Status, Config, ExpectedList}, SendToCluster3, Mode, 
         end,
     ?assertEqual(true, check_objects("cluster1", Cluster1, Expected1, erlang:now(), 30)),
     ?assertEqual(true, check_objects("cluster2", Cluster2, Expected2, erlang:now(), 30)),
-    ?assertEqual(true, check_objects("cluster3", Cluster3, Expected3, erlang:now(), 120)),
+    ?assertEqual(true, check_objects("cluster3", Cluster3, Expected3, erlang:now(), 30)),
     cleanup([Cluster1, Cluster2, Cluster3]),
     pass.
 
@@ -347,10 +367,10 @@ realtime_test({TestNumber, Status, Config, ExpectedList}, SendToCluster3, Mode, 
 %%                                        Riak Test Functions                                                         %%
 %% ================================================================================================================== %%
 
-put_all_objects(Cluster, TestNumber) ->
+put_all_objects(Cluster, TestNumber, Repl, OFMode) ->
     Node = hd(Cluster),
     {ok, C} = riak:client_connect(Node),
-    [C:put(Obj) || Obj <- create_objects(all, TestNumber)],
+    [C:put(Obj) || Obj <- create_objects(all, TestNumber, {Repl, OFMode})],
     lager:info("Placed all data on cluster1").
 
 delete_all_objects(ClusterName, Cluster) ->
@@ -362,7 +382,7 @@ delete_all_objects(ClusterName, Cluster) ->
 
 check_objects(ClusterName, Cluster, Expected, Time, Timeout) ->
     check_object_helper(ClusterName, Cluster, Expected, Time, Timeout).
-
+%% TODO make this quicker for []!
 check_object_helper(ClusterName, Cluster, Expected, Time, Timeout) ->
     Actual = get_all_objects(Cluster),
     Result = lists:sort(Actual) == lists:sort(Expected),
@@ -391,18 +411,38 @@ get_single_object(C, BN, KN) ->
             {riak_object:bucket(Obj), riak_object:key(Obj)}
     end.
 
-create_objects(all, TestNumber) -> [create_single_object(BN, KN, TestNumber) || BN <- ?ALL_BUCKETS_NUMS, KN <- ?ALL_KEY_NUMS];
-create_objects({bucket, BN}, TestNumber) -> [create_single_object(BN, KN, TestNumber) || KN <- ?ALL_KEY_NUMS];
-create_objects({metadata, KN}, TestNumber) -> [create_single_object(BN, KN, TestNumber) || BN <- ?ALL_BUCKETS_NUMS].
+create_objects(all, TestNumber, Value) -> [create_single_object(BN, KN, TestNumber, Value) || BN <- ?ALL_BUCKETS_NUMS, KN <- ?ALL_KEY_NUMS].
 
-create_single_object(BN, KN, TestNumber) ->
-    riak_object:new(make_bucket(BN), make_key(KN) , make_value(BN, KN, TestNumber), make_dict(KN)).
+create_single_object(BN, KN, TestNumber, Value) ->
+    riak_object:new(make_bucket(BN), make_key(KN) , make_value(BN, KN, TestNumber, Value), make_dict(KN)).
 
 make_bucket(N) -> list_to_binary("bucket-" ++ N).
 make_key(N) -> list_to_binary("key-" ++ N).
-make_value(BN, KN, TestNumber) -> list_to_binary("test-" ++ integer_to_list(TestNumber) ++ " ------ value-" ++ BN ++ "-" ++ KN).
+make_value(BN, KN, TestNumber, {fullsync, OFMode}) -> list_to_binary("test-" ++ integer_to_list(TestNumber) ++ " ------ value-"
+    ++ BN ++ "-" ++ KN ++ "-" ++ "fullsync" ++ "-" ++ OFMode);
+make_value(BN, KN, TestNumber, {{realtime, SendToCluster3}, OFMode}) -> list_to_binary("test-" ++ integer_to_list(TestNumber) ++ " ------ value-"
+    ++ BN ++ "-" ++ KN ++ "-" ++ "realtime" ++ "-" ++ atom_to_list(SendToCluster3) ++ "-" ++ OFMode).
 make_dict("1") -> dict:new();
 make_dict(N) -> dict:from_list([{filter, N}]).
+
+
+check_object_filtering_config(Clusters) ->
+    [check_object_filtering_config_helper(C) || C <- Clusters].
+
+check_object_filtering_config_helper(Cluster) ->
+    Node = hd(Cluster),
+    {status_all_nodes, StatusList} = rpc:call(Node, riak_repl2_object_filter, status_all, []),
+    check_configs_equal(Cluster, StatusList).
+
+check_configs_equal(Cluster, StatusList) ->
+    S1 = [Status || {_, Status} <- StatusList],
+    S2 = lists:usort(S1),
+    case length(S2) == 1 of
+        true -> ok;
+        false ->
+            timer:sleep(1000),
+            check_object_filtering_config_helper(Cluster)
+    end.
 
 
 
@@ -419,12 +459,16 @@ make_clusters() ->
                 {max_fssource_node, 8},
                 {max_fssink_node, 64},
                 {max_fssource_cluster, 64},
-                {default_bucket_props, [{n_val, 3}, {allow_mult, false}]}
+                {default_bucket_props, [{n_val, 3}, {allow_mult, false}]},
+                {override_capability,
+                    [{default_bucket_props_hash, [{use, [consistent, datatype, n_val, allow_mult, last_write_wins]}]}]}
             ]},
 
         {riak_kv,
             [
-                {backend_reap_threshold, 86400}
+                {backend_reap_threshold, 86400},
+                {override_capability, [{object_hash_version, [{use, legacy}]}]}
+
             ]}
     ],
     Nodes = rt:deploy_nodes(8, Conf, [riak_kv, riak_repl]),
@@ -533,8 +577,9 @@ write_terms(Filename, List) ->
 
 cleanup(Clusters) ->
     ClusterNames = ["cluster1", "cluster2", "cluster3"],
-    delete_data(Clusters, ClusterNames),
     clear_config(Clusters),
+    check_object_filtering_config(Clusters),
+    delete_data(Clusters, ClusterNames),
     delete_files(),
     lager:info("Cleanup complete ~n", []),
     check(Clusters, ClusterNames),
@@ -555,7 +600,7 @@ delete_files() ->
 
 clear_config([]) -> ok;
 clear_config([Cluster| Rest]) ->
-    rpc:call(hd(Cluster), riak_repl_console, object_filtering_clear_config, [[]]) ,
+    rpc:call(hd(Cluster), riak_repl_console, object_filtering_clear_config, [["all"]]) ,
     rpc:call(hd(Cluster), riak_repl_console, object_filtering_disable, [[]]),
     clear_config(Rest).
 
