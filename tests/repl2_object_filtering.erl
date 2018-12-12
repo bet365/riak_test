@@ -11,6 +11,16 @@ confirm() ->
     [Cluster1, Cluster2, Cluster3] = make_clusters(),
     connect_clusters({hd(Cluster1),"cluster1"}, {hd(Cluster2), "cluster2"}),
     connect_clusters({hd(Cluster2),"cluster2"}, {hd(Cluster3), "cluster3"}),
+
+    %% create bucket types
+    rpc:call(hd(Cluster1), riak_kv_console, bucket_type_create, [["type-1", "{\"props\":{\"allow_mult\":\"false\",\"dvv_enabled\":false}}"]]),
+    rpc:call(hd(Cluster2), riak_kv_console, bucket_type_create, [["type-1", "{\"props\":{\"allow_mult\":\"false\",\"dvv_enabled\":false}}"]]),
+    rpc:call(hd(Cluster3), riak_kv_console, bucket_type_create, [["type-1", "{\"props\":{\"allow_mult\":\"false\",\"dvv_enabled\":false}}"]]),
+
+    rpc:call(hd(Cluster1), riak_kv_console, bucket_type_activate, [["type-1"]]),
+    rpc:call(hd(Cluster2), riak_kv_console, bucket_type_activate, [["type-1"]]),
+    rpc:call(hd(Cluster3), riak_kv_console, bucket_type_activate, [["type-1"]]),
+
     %% Single tests - these are run as {TestNumeber, Status, Config, ExpectedObjects}
     Test1 =
         [
@@ -19,29 +29,25 @@ confirm() ->
                 1,
                 disabled,
                 [{"cluster2", {allow, ['*']}, {block,['*']}}],
-                [{"1","1"}, {"1","2"}, {"1","3"}, {"2","1"}, {"2","2"}, {"2","3"}, {"3","1"}, {"3","2"}, {"3","3"},
-                    {{"1", "1"},"1"}, {{"1", "1"},"2"}, {{"1", "1"},"3"}, {{"1", "2"},"1"}, {{"1", "2"},"2"}, {{"1", "2"},"3"}, {{"1", "3"},"1"}, {{"1", "3"},"2"}, {{"1", "3"},"3"}]
+                all_bkeys()
             },
             {
                 2,
                 disabled,
                 [{"cluster2", {allow, ['*']}, {block,[]}}],
-                [{"1","1"}, {"1","2"}, {"1","3"}, {"2","1"}, {"2","2"}, {"2","3"}, {"3","1"}, {"3","2"}, {"3","3"},
-                    {{"1", "1"},"1"}, {{"1", "1"},"2"}, {{"1", "1"},"3"}, {{"1", "2"},"1"}, {{"1", "2"},"2"}, {{"1", "2"},"3"}, {{"1", "3"},"1"}, {{"1", "3"},"2"}, {{"1", "3"},"3"}]
+                all_bkeys()
             },
             {
                 3,
                 disabled,
                 [{"cluster2", {allow, []}, {block,['*']}}],
-                [{"1","1"}, {"1","2"}, {"1","3"}, {"2","1"}, {"2","2"}, {"2","3"}, {"3","1"}, {"3","2"}, {"3","3"},
-                    {{"1", "1"},"1"}, {{"1", "1"},"2"}, {{"1", "1"},"3"}, {{"1", "2"},"1"}, {{"1", "2"},"2"}, {{"1", "2"},"3"}, {{"1", "3"},"1"}, {{"1", "3"},"2"}, {{"1", "3"},"3"}]
+                all_bkeys()
             },
             {
                 4,
                 disabled,
                 [{"cluster2", {allow, []}, {block,[]}}],
-                [{"1","1"}, {"1","2"}, {"1","3"}, {"2","1"}, {"2","2"}, {"2","3"}, {"3","1"}, {"3","2"}, {"3","3"},
-                    {{"1", "1"},"1"}, {{"1", "1"},"2"}, {{"1", "1"},"3"}, {{"1", "2"},"1"}, {{"1", "2"},"2"}, {{"1", "2"},"3"}, {{"1", "3"},"1"}, {{"1", "3"},"2"}, {{"1", "3"},"3"}]
+                all_bkeys()
             },
             {
                 5,
@@ -53,8 +59,7 @@ confirm() ->
                 6,
                 enabled,
                 [{"cluster2", {allow, ['*']}, {block,[]}}],
-                [{"1","1"}, {"1","2"}, {"1","3"}, {"2","1"}, {"2","2"}, {"2","3"}, {"3","1"}, {"3","2"}, {"3","3"},
-                    {{"1", "1"},"1"}, {{"1", "1"},"2"}, {{"1", "1"},"3"}, {{"1", "2"},"1"}, {{"1", "2"},"2"}, {{"1", "2"},"3"}, {{"1", "3"},"1"}, {{"1", "3"},"2"}, {{"1", "3"},"3"}]
+                all_bkeys()
             },
             {
                 7,
@@ -91,8 +96,7 @@ confirm() ->
             13, %% bucket - all
             enabled,
             [{"cluster2", {allow, [{bucket,all}]}, {block,[]}}],
-            [{"1","1"}, {"1","2"}, {"1","3"}, {"2","1"}, {"2","2"}, {"2","3"}, {"3","1"}, {"3","2"}, {"3","3"},
-                {{"1", "1"},"1"}, {{"1", "1"},"2"}, {{"1", "1"},"3"}, {{"1", "2"},"1"}, {{"1", "2"},"2"}, {{"1", "2"},"3"}, {{"1", "3"},"1"}, {{"1", "3"},"2"}, {{"1", "3"},"3"}]
+            all_bkeys()
         },
         {
             15, %% not_bucket - match
@@ -105,8 +109,7 @@ confirm() ->
             17, %% not_bucket - not match
             enabled,
             [{"cluster2", {allow, [{not_bucket, <<"bucket-4">>}]}, {block,[]}}],
-            [{"1","1"}, {"1","2"}, {"1","3"}, {"2","1"}, {"2","2"}, {"2","3"}, {"3","1"}, {"3","2"}, {"3","3"},
-                {{"1", "1"},"1"}, {{"1", "1"},"2"}, {{"1", "1"},"3"}, {{"1", "2"},"1"}, {{"1", "2"},"2"}, {{"1", "2"},"3"}, {{"1", "3"},"1"}, {{"1", "3"},"2"}, {{"1", "3"},"3"}]
+            all_bkeys()
         },
         {
             19, %% not_bucket - all
@@ -155,22 +158,19 @@ confirm() ->
             33, %% not_metadata - not match 1
             enabled,
             [{"cluster2", {allow, [{not_metadata,{filter, "4"}}]}, {block,[]}}],
-            [{"1","1"}, {"1","2"}, {"1","3"}, {"2","1"}, {"2","2"}, {"2","3"}, {"3","1"}, {"3","2"}, {"3","3"},
-                {{"1", "1"},"1"}, {{"1", "1"},"2"}, {{"1", "1"},"3"}, {{"1", "2"},"1"}, {{"1", "2"},"2"}, {{"1", "2"},"3"}, {{"1", "3"},"1"}, {{"1", "3"},"2"}, {{"1", "3"},"3"}]
+            all_bkeys()
         },
         {
             35, %% not_metadata - not match 2
             enabled,
             [{"cluster2", {allow, [{not_metadata,{other, "2"}}]}, {block,[]}}],
-            [{"1","1"}, {"1","2"}, {"1","3"}, {"2","1"}, {"2","2"}, {"2","3"}, {"3","1"}, {"3","2"}, {"3","3"},
-                {{"1", "1"},"1"}, {{"1", "1"},"2"}, {{"1", "1"},"3"}, {{"1", "2"},"1"}, {{"1", "2"},"2"}, {{"1", "2"},"3"}, {{"1", "3"},"1"}, {{"1", "3"},"2"}, {{"1", "3"},"3"}]
+            all_bkeys()
         },
         {
             37, %% not_metadata - not match 3
             enabled,
             [{"cluster2", {allow, [{not_metadata,{other, all}}]}, {block,[]}}],
-            [{"1","1"}, {"1","2"}, {"1","3"}, {"2","1"}, {"2","2"}, {"2","3"}, {"3","1"}, {"3","2"}, {"3","3"},
-                {{"1", "1"},"1"}, {{"1", "1"},"2"}, {{"1", "1"},"3"}, {{"1", "2"},"1"}, {{"1", "2"},"2"}, {{"1", "2"},"3"}, {{"1", "3"},"1"}, {{"1", "3"},"2"}, {{"1", "3"},"3"}]
+            all_bkeys()
         },
         {
             39, %% not_metadata - all
@@ -192,7 +192,7 @@ confirm() ->
             42,
             enabled,
             [{"cluster2", {allow, [{bucket,<<"bucket-1">>}, {metadata,{filter, "2"}}]}, {block,[{bucket, <<"bucket-3">>}]}}],
-            [{"1","1"}, {"1","2"}, {"1","3"},{"2","2"}]
+            [{"1","1"}, {"1","2"}, {"1","3"}, {"2","2"}, {{"1", "1"},"2"}, {{"1", "2"},"2"}, {{"1", "3"},"2"}]
         },
         {
             43,
@@ -215,64 +215,80 @@ confirm() ->
         }
     ],
 
-%%    Test4 =
-%%    [
-%%        {
-%%            47, %% bucket - match
-%%            enabled,
-%%            [{"cluster2", {allow, [{bucket, <<"bucket-1">>}]}, {block,[]}}],
-%%            [{"1","1"}, {"1","2"}, {"1","3"}]
-%%        },
-%%        {
-%%            49, %% bucket - not match
-%%            enabled,
-%%            [{"cluster2", {allow, [{bucket, <<"bucket-4">>}]}, {block,[]}}],
-%%            []
-%%        },
-%%        {
-%%            51, %% bucket - all
-%%            enabled,
-%%            [{"cluster2", {allow, [{bucket,all}]}, {block,[]}}],
-%%            [{"1","1"}, {"1","2"}, {"1","3"}, {"2","1"}, {"2","2"}, {"2","3"}, {"3","1"}, {"3","2"}, {"3","3"}]
-%%        },
-%%        {
-%%            53, %% not_bucket - match
-%%            enabled,
-%%            [{"cluster2", {allow, [{not_bucket, <<"bucket-1">>}]}, {block,[]}}],
-%%            [{"2","1"}, {"2","2"}, {"2","3"}, {"3","1"}, {"3","2"}, {"3","3"}]
-%%        },
-%%        {
-%%            55, %% not_bucket - not match
-%%            enabled,
-%%            [{"cluster2", {allow, [{not_bucket, <<"bucket-4">>}]}, {block,[]}}],
-%%            [{"1","1"}, {"1","2"}, {"1","3"}, {"2","1"}, {"2","2"}, {"2","3"}, {"3","1"}, {"3","2"}, {"3","3"}]
-%%        },
-%%        {
-%%            57, %% not_bucket - all
-%%            enabled,
-%%            [{"cluster2", {allow, [{not_bucket, all}]}, {block,[]}}],
-%%            []
-%%        }
-%%    ],
+    Test4 =
+    [
+        {
+            47,
+            enabled,
+            [{"cluster2", {allow, [{bucket, {<<"type-1">>, <<"bucket-1">>}}]}, {block,[]}}],
+            [{{"1","1"},"1"}, {{"1","1"},"2"}, {{"1","1"},"3"}]
+        },
+        {
+            49,
+            enabled,
+            [{"cluster2", {allow, [{bucket, {<<"type-1">>, <<"bucket-2">>}}]}, {block,[]}}],
+            [{{"1","2"},"1"}, {{"1","2"},"2"}, {{"1","2"},"3"}]
+        },
+        {
+            51,
+            enabled,
+            [{"cluster2", {allow, [{bucket, {<<"type-1">>, <<"bucket-3">>}}]}, {block,[]}}],
+            [{{"1","3"},"1"}, {{"1","3"},"2"}, {{"1","3"},"3"}]
+        },
+        {
+            53,
+            enabled,
+            [{"cluster2", {allow, [{bucket, {<<"type-2">>, <<"bucket-1">>}}]}, {block,[]}}],
+            []
+        },
+        {
+            55,
+            enabled,
+            [{"cluster2", {allow, [{not_bucket, {<<"type-1">>, <<"bucket-1">>}}]}, {block,[]}}],
+            all_bkeys() -- [{{"1","1"},"1"}, {{"1","1"},"2"}, {{"1","1"},"3"}]
+        },
+        {
+            57,
+            enabled,
+            [{"cluster2", {allow, [{not_bucket, {<<"type-1">>, <<"bucket-2">>}}]}, {block,[]}}],
+            all_bkeys() -- [{{"1","2"},"1"}, {{"1","2"},"2"}, {{"1","2"},"3"}]
+        },
+        {
+            59,
+            enabled,
+            [{"cluster2", {allow, [{not_bucket, {<<"type-1">>, <<"bucket-3">>}}]}, {block,[]}}],
+            all_bkeys() -- [{{"1","3"},"1"}, {{"1","3"},"2"}, {{"1","3"},"3"}]
+        },
+        {
+            61,
+            enabled,
+            [{"cluster2", {allow, [{not_bucket, {<<"type-2">>, <<"bucket-1">>}}]}, {block,[]}}],
+            all_bkeys()
+        }
+    ],
 
-    Tests = [Test1, Test2, Test3],
+    Tests = [Test1, Test2, Test3, Test4],
     Clusters = [Cluster1, Cluster2, Cluster3],
-    run_all_tests_fullsync(Tests, Clusters),
     run_all_tests_realtime(Tests, Clusters),
+    run_all_tests_fullsync(Tests, Clusters),
     pass.
 
 
 
-run_all_tests_realtime([Test1, Test2, Test3], [Cluster1, Cluster2, Cluster3]) ->
+run_all_tests_realtime([Test1, Test2, Test3, Test4], [Cluster1, Cluster2, Cluster3]) ->
     start_realtime(Cluster1, "cluster2"),
     start_realtime(Cluster2, "cluster3"),
+    timer:sleep(30000),
+    [run_test2(realtime, Test, [Cluster1, Cluster2, Cluster3]) || Test <- Test4],
     [run_test(realtime, Test, [Cluster1, Cluster2, Cluster3]) || Test <- Test1],
     [run_test2(realtime, Test, [Cluster1, Cluster2, Cluster3]) || Test <- Test2],
     [run_test(realtime, Test, [Cluster1, Cluster2, Cluster3]) || Test <- Test3],
     stop_realtime(Cluster1, "cluster2"),
-    stop_realtime(Cluster2, "cluster3").
+    stop_realtime(Cluster2, "cluster3"),
+    timer:sleep(30000).
 
-run_all_tests_fullsync([Test1, Test2, Test3], [Cluster1, Cluster2, Cluster3]) ->
+run_all_tests_fullsync([Test1, Test2, Test3, Test4], [Cluster1, Cluster2, Cluster3]) ->
+    [run_test2(fullsync, Test, [Cluster1, Cluster2, Cluster3]) || Test <- Test4],
     [run_test(fullsync, Test, [Cluster1, Cluster2, Cluster3]) || Test <- Test1],
     [run_test2(fullsync, Test, [Cluster1, Cluster2, Cluster3]) || Test <- Test2],
     [run_test(fullsync, Test, [Cluster1, Cluster2, Cluster3]) || Test <- Test3].
@@ -280,8 +296,7 @@ run_all_tests_fullsync([Test1, Test2, Test3], [Cluster1, Cluster2, Cluster3]) ->
 
 run_test2(ReplMode, Test1={N,Status,[{Name, {allow, Allowed}, {block, []}}],Expected}, Clusters)->
     run_test(ReplMode, Test1, Clusters),
-    Expected2 =
-        [{"1","1"}, {"1","2"}, {"1","3"},{"2","1"}, {"2","2"}, {"2","3"},{"3","1"}, {"3","2"}, {"3","3"}] -- Expected,
+    Expected2 = all_bkeys() -- Expected,
     Test2 = {N+1, Status, [{Name, {allow, ['*']}, {block, Allowed}}], Expected2},
     run_test(ReplMode, Test2, Clusters).
 
@@ -328,14 +343,8 @@ fullsync_test({0,_,_,_}, Mode, [Cluster1, Cluster2, Cluster3]) ->
     put_all_objects(Cluster1, 0, fullsync, Mode),
     start_fullsync(Cluster1, "cluster2"),
     %% ================================================================== %%
-    List=
-        [
-            {"1","1"}, {"1","2"}, {"1","3"},
-            {"2","1"}, {"2","2"}, {"2","3"},
-            {"3","1"}, {"3","2"}, {"3","3"}
-        ],
-    Expected1 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- List],
-    Expected2 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- List],
+    Expected1 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- all_bkeys()],
+    Expected2 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- all_bkeys()],
     ?assertEqual(true, check_objects("cluster1", Cluster1, Expected1, erlang:now(), 30)),
     ?assertEqual(true, check_objects("cluster2", Cluster2, Expected2, erlang:now(), 30)),
     cleanup([Cluster1, Cluster2, Cluster3]),
@@ -350,13 +359,8 @@ fullsync_test({TestNumber, Status, Config, ExpectedList}, Mode, C=[Cluster1, Clu
     put_all_objects(Cluster1, TestNumber, fullsync, Mode),
     start_fullsync(Cluster1, "cluster2"),
     %% ================================================================== %%
-    List1 =
-        [
-            {"1","1"}, {"1","2"}, {"1","3"},
-            {"2","1"}, {"2","2"}, {"2","3"},
-            {"3","1"}, {"3","2"}, {"3","3"}
-        ],
-    Expected1 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- List1],
+
+    Expected1 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- all_bkeys()],
     Expected2 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- ExpectedList],
     ?assertEqual(true, check_objects("cluster1", Cluster1, Expected1, erlang:now(), 30)),
     ?assertEqual(true, check_objects("cluster2", Cluster2, Expected2, erlang:now(), 30)),
@@ -368,15 +372,10 @@ realtime_test({0,_,_,_}, SendToCluster3, Mode, [Cluster1, Cluster2, Cluster3]) -
     print_test(0, Mode, SendToCluster3),
     put_all_objects(Cluster1, 0, {realtime, SendToCluster3}, Mode),
     %% ================================================================== %%
-    List=
-        [
-            {"1","1"}, {"1","2"}, {"1","3"},
-            {"2","1"}, {"2","2"}, {"2","3"},
-            {"3","1"}, {"3","2"}, {"3","3"}
-        ],
-    Expected1 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- List],
-    Expected2 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- List],
-    Expected3 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- List],
+
+    Expected1 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- all_bkeys()],
+    Expected2 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- all_bkeys()],
+    Expected3 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- all_bkeys()],
     ?assertEqual(true, check_objects("cluster1", Cluster1, Expected1, erlang:now(), 30)),
     ?assertEqual(true, check_objects("cluster2", Cluster2, Expected2, erlang:now(), 30)),
     ?assertEqual(true, check_objects("cluster3", Cluster2, Expected3, erlang:now(), 30)),
@@ -397,13 +396,8 @@ realtime_test({TestNumber, Status, Config, ExpectedList}, SendToCluster3, Mode, 
     %% ================================================================== %%
     put_all_objects(Cluster1, TestNumber, {realtime, SendToCluster3}, Mode),
     %% ================================================================== %%
-    List1 =
-        [
-            {"1","1"}, {"1","2"}, {"1","3"},
-            {"2","1"}, {"2","2"}, {"2","3"},
-            {"3","1"}, {"3","2"}, {"3","3"}
-        ],
-    Expected1 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- List1],
+
+    Expected1 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- all_bkeys()],
     Expected2 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- ExpectedList],
     Expected3 =
         case SendToCluster3 of
@@ -419,6 +413,9 @@ realtime_test({TestNumber, Status, Config, ExpectedList}, SendToCluster3, Mode, 
 %% ================================================================================================================== %%
 %%                                        Riak Test Functions                                                         %%
 %% ================================================================================================================== %%
+
+all_bkeys() ->
+    [{B,K} || B <- ?ALL_BUCKETS_NUMS, K <- ?ALL_KEY_NUMS].
 
 put_all_objects(Cluster, TestNumber, Repl, OFMode) ->
     Node = hd(Cluster),
@@ -471,16 +468,25 @@ create_single_object(BN, KN, TestNumber, Value) ->
 
 make_bucket({T,N}) -> {list_to_binary("type-"++T), list_to_binary("bucket-" ++ N)};
 make_bucket(N) -> list_to_binary("bucket-" ++ N).
+
 make_key(N) -> list_to_binary("key-" ++ N).
+
+make_value({T,BN}, KN, TestNumber, {fullsync, OFMode}) -> list_to_binary("test-" ++ integer_to_list(TestNumber) ++ " ------ value-"
+    ++ T ++ "-" ++ BN ++ "-" ++ KN ++ "-" ++ "fullsync" ++ "-" ++ OFMode);
+make_value({T, BN}, KN, TestNumber, {{realtime
+    , SendToCluster3}, OFMode}) -> list_to_binary("test-" ++ integer_to_list(TestNumber) ++ " ------ value-"
+    ++ T ++ "-" ++ BN ++ "-" ++ KN ++ "-" ++ "realtime" ++ "-" ++ atom_to_list(SendToCluster3) ++ "-" ++ OFMode);
 make_value(BN, KN, TestNumber, {fullsync, OFMode}) -> list_to_binary("test-" ++ integer_to_list(TestNumber) ++ " ------ value-"
     ++ BN ++ "-" ++ KN ++ "-" ++ "fullsync" ++ "-" ++ OFMode);
 make_value(BN, KN, TestNumber, {{realtime, SendToCluster3}, OFMode}) -> list_to_binary("test-" ++ integer_to_list(TestNumber) ++ " ------ value-"
     ++ BN ++ "-" ++ KN ++ "-" ++ "realtime" ++ "-" ++ atom_to_list(SendToCluster3) ++ "-" ++ OFMode).
+
 make_dict("1") -> dict:new();
 make_dict(N) -> dict:from_list([{filter, N}]).
 
 
 check_object_filtering_config(Clusters) ->
+    timer:sleep(200),
     [check_object_filtering_config_helper(C) || C <- Clusters].
 
 check_object_filtering_config_helper(Cluster) ->
