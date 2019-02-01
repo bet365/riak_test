@@ -35,6 +35,17 @@ confirm() ->
     run_all_tests_fullsync(Tests, Clusters),
     pass.
 
+%%merge_configs(Config1, Config2) ->
+%%    {N1, Enabled, [{ClusterName, {allow, A1}, {block, []}}], E1} = Config1,
+%%    {N2, Enabled, [{ClusterName, {allow, A2}, {block, []}}], E2} = Config2,
+%%    {N1+N2, Enabled, [{ClusterName, {allow, [A1++A2]}, {block, []}}], lists:usort(E1++E2)}.
+%%
+%%merge_configs(Config1, Config2, Config3) ->
+%%    Merge1 = merge_configs(Config1, Config2),
+%%    merge_configs(Merge1, Config3).
+
+
+
 run_all_tests_realtime({SingleTests, DoubleTests}, [Cluster1, Cluster2, Cluster3]) ->
     start_realtime(Cluster1, "cluster2"),
     start_realtime(Cluster2, "cluster3"),
@@ -53,7 +64,7 @@ run_all_tests_fullsync({SingleTests, DoubleTests}, [Cluster1, Cluster2, Cluster3
 run_test_double(ReplMode, Test1={N,Status,[{Name, {allow, Allowed}, {block, []}}],Expected}, Clusters)->
     run_test_single(ReplMode, Test1, Clusters),
     Expected2 = all_bkeys() -- Expected,
-    Test2 = {N+1, Status, [{Name, {allow, ['*']}, {block, Allowed}}], Expected2},
+    Test2 = {N*-1, Status, [{Name, {allow, ['*']}, {block, Allowed}}], Expected2},
     run_test_single(ReplMode, Test2, Clusters).
 
 run_test_single(fullsync, Test, Clusters) ->
