@@ -7,8 +7,47 @@
 -define(ALL_KEY_NUMS, ["1","2","3"]).
 
 confirm() ->
+
+    %% Single tests - these are run as {TestNumeber, Status, Config, ExpectedObjects}
+    SingleTests = get_config(),
+
+    %% Double tests - 2 tests are run on each of these.
+    %% allow is changed to {allow, ['*']}
+    %% block is changed to {block, Allowed}
+    %% expected is now the inverse of what was expected in the first test
+    DoubleTests2 = lists:flatten(
+        [
+            [merge_configs([Config1, Config2]) || Config1 <- get_config(bucket), Config2 <- get_config(metadata)],
+            [merge_configs([Config1, Config2]) || Config1 <- get_config(bucket), Config2 <- get_config(lastmod_age)],
+            [merge_configs([Config1, Config2]) || Config1 <- get_config(bucket), Config2 <- get_config(lastmod)],
+            [merge_configs([Config1, Config2]) || Config1 <- get_config(metadata), Config2 <- get_config(lastmod_age)],
+            [merge_configs([Config1, Config2]) || Config1 <- get_config(metadata), Config2 <- get_config(lastmod)],
+            [merge_configs([Config1, Config2]) || Config1 <- get_config(lastmod), Config2 <- get_config(lastmod_age)]
+        ]),
+    DoubleTests4 = lists:flatten(
+        [
+            [merge_configs([Config1, Config2, Config3]) || Config1 <- get_config(bucket), Config2 <- get_config(metadata), Config3 <- get_config(lastmod_age)],
+            [merge_configs([Config1, Config2, Config3]) || Config1 <- get_config(bucket), Config2 <- get_config(metadata), Config3 <- get_config(lastmod)],
+            [merge_configs([Config1, Config2, Config3]) || Config1 <- get_config(bucket), Config2 <- get_config(lastmod), Config3 <- get_config(lastmod_age)],
+            [merge_configs([Config1, Config2, Config3]) || Config1 <- get_config(metadata), Config2 <- get_config(lastmod), Config3 <- get_config(lastmod_age)]
+        ]),
+
+    DoubleTests1 = get_config(bucket) ++ get_config(metadata) ++ get_config(lastmod_age) ++ get_config(lastmod),
+    DoubleTests3 = DoubleTests2 ++ lists:map(fun not_rule/1, DoubleTests2),
+    DoubleTests5 = DoubleTests4 ++ lists:map(fun not_rule/1, DoubleTests4),
+    DoubleTests = DoubleTests1 ++ DoubleTests3 ++ DoubleTests5,
+
+    Tests = {SingleTests, DoubleTests},
+
+    Clusters = make_clusters(),
+    run_all_tests_realtime(Tests, Clusters),
+    destroy_clusters(Clusters),
+    run_all_tests_fullsync(Tests, make_clusters()),
+    pass.
+
+make_clusters() ->
     delete_files(),
-    [Cluster1, Cluster2, Cluster3] = make_clusters(),
+    [Cluster1, Cluster2, Cluster3] = make_clusters_helper(),
     connect_clusters({hd(Cluster1),"cluster1"}, {hd(Cluster2), "cluster2"}),
     connect_clusters({hd(Cluster2),"cluster2"}, {hd(Cluster3), "cluster3"}),
 
@@ -19,42 +58,48 @@ confirm() ->
     rpc:call(hd(Cluster1), riak_kv_console, bucket_type_activate, [["type-1"]]),
     rpc:call(hd(Cluster2), riak_kv_console, bucket_type_activate, [["type-1"]]),
     rpc:call(hd(Cluster3), riak_kv_console, bucket_type_activate, [["type-1"]]),
+    [Cluster1, Cluster2, Cluster3].
 
-    %% Single tests - these are run as {TestNumeber, Status, Config, ExpectedObjects}
-    SingleTests = get_config(),
+destroy_clusters(Clusters) ->
+    Nodes = lists:flatten(Clusters),
+    rt:clean_cluster(Nodes).
 
-    %% Double tests - 2 tests are run on each of these.
-    %% allow is changed to {allow, ['*']}
-    %% block is changed to {block, Allowed}
-    %% expected is now the inverse of what was expected in the first test
-    DoubleTests = get_config(bucket) ++ get_config(metadata),
+merge_configs(List) ->
+    merge_configs(List, []).
 
-    Tests = {SingleTests, DoubleTests},
-    Clusters = [Cluster1, Cluster2, Cluster3],
-    run_all_tests_realtime(Tests, Clusters),
-    run_all_tests_fullsync(Tests, Clusters),
-    pass.
+merge_configs([], []) -> [];
+merge_configs([C], []) -> C;
+merge_configs([], Merged) ->
+    Merged;
+merge_configs([C], Merged) ->
+    merge_configs_helper(C, Merged);
+merge_configs([Config1, Config2 | Rest], []) ->
+    Merge1 = merge_configs_helper(Config1, Config2),
+    merge_configs(Rest, Merge1);
+merge_configs([Config1 | Rest], Merged) ->
+    Merge1 = merge_configs_helper(Config1, Merged),
+    merge_configs(Rest, Merge1).
 
-%%merge_configs(Config1, Config2) ->
-%%    {N1, Enabled, [{ClusterName, {allow, A1}, {block, []}}], E1} = Config1,
-%%    {N2, Enabled, [{ClusterName, {allow, A2}, {block, []}}], E2} = Config2,
-%%    {N1+N2, Enabled, [{ClusterName, {allow, [A1++A2]}, {block, []}}], lists:usort(E1++E2)}.
-%%
-%%merge_configs(Config1, Config2, Config3) ->
-%%    Merge1 = merge_configs(Config1, Config2),
-%%    merge_configs(Merge1, Config3).
+merge_configs_helper(Config1, Config2) ->
+    {N1, Enabled, [{ClusterName, {allow, R1}, {block, []}}], E1} = Config1,
+    {N2, Enabled, [{ClusterName, {allow, R2}, {block, []}}], E2} = Config2,
+    S1 = sets:from_list(E1),
+    S2 = sets:from_list(E2),
+    S3 = sets:intersection(S1, S2),
+    E3 = sets:to_list(S3),
+    {N1+N2, Enabled, [{ClusterName, {allow, [R1++R2]}, {block, []}}], E3}.
 
 
 
 run_all_tests_realtime({SingleTests, DoubleTests}, [Cluster1, Cluster2, Cluster3]) ->
     start_realtime(Cluster1, "cluster2"),
     start_realtime(Cluster2, "cluster3"),
-    timer:sleep(30000),
+    timer:sleep(60000),
     [run_test_single(realtime, Test, [Cluster1, Cluster2, Cluster3]) || Test <- SingleTests],
     [run_test_double(realtime, Test, [Cluster1, Cluster2, Cluster3]) || Test <- DoubleTests],
     stop_realtime(Cluster1, "cluster2"),
     stop_realtime(Cluster2, "cluster3"),
-    timer:sleep(30000).
+    timer:sleep(60000).
 
 run_all_tests_fullsync({SingleTests, DoubleTests}, [Cluster1, Cluster2, Cluster3]) ->
     [run_test_single(fullsync, Test, [Cluster1, Cluster2, Cluster3]) || Test <- SingleTests],
@@ -275,7 +320,7 @@ check_configs_equal(Cluster, StatusList) ->
 
 
 
-make_clusters() ->
+make_clusters_helper() ->
     Conf = [
         {riak_repl,
             [
@@ -442,11 +487,6 @@ print_objects_helper([{Bucket, Key}|Rest]) ->
 
 
 
-%% {lastmod_age_greater_than}
-%% {lastmod_age_less_than}
-%% {lastmod_greater_than}
-%% {lastmod_less_than}
-
 get_config() ->
     [
         {0, disabled, [{"cluster2", {allow, []}, {block,[]}}], []},
@@ -516,7 +556,7 @@ get_config() ->
         {
             111,
             enabled,
-            [{"cluster2", {allow, [{bucket,<<"bucket-1">>}, {metadata,{filter, "2"}}]}, {block,[[{bucket, <<"bucket-1">>}, {metadata, {filter, all}}]]}}],
+            [{"cluster2", {allow, [{bucket,<<"bucket-1">>}, {metadata,{filter, "2"}}]}, {block,[[{bucket, <<"bucket-1">>}, {metadata, {filter}}]]}}],
             [{"1","1"},{"2","2"},{"3","2"}, {{"1", "1"},"2"}, {{"1", "2"},"2"}, {{"1", "3"},"2"}]
         },
         {
@@ -524,153 +564,131 @@ get_config() ->
             enabled,
             [{"cluster2", {allow, [[{bucket, <<"bucket-1">>}, {metadata, {filter}}]]}, {block,[[{bucket, <<"bucket-1">>}, {metadata, {filter, "2"}}]]}}],
             [{"1","3"}]
-        },
-        {
-            114,
-            enabled,
-            [{"cluster2", {allow, [[{bucket, <<"bucket-1">>}, {metadata, {filter, all}}]]}, {block,[[{bucket, <<"bucket-1">>}, {metadata, {filter, "2"}}]]}}],
-            [{"1","1"}, {"1","3"}, {"2","1"}, {"2","2"}, {"2","3"}, {"3","1"}, {"3","2"}, {"3","3"},
-                {{"1", "1"},"1"}, {{"1", "1"},"2"}, {{"1", "1"},"3"}, {{"1", "2"},"1"}, {{"1", "2"},"2"}, {{"1", "2"},"3"}, {{"1", "3"},"1"}, {{"1", "3"},"2"}, {{"1", "3"},"3"}]
         }
     ].
 get_config(bucket) ->
-    [
-        {
-            200, %% bucket - match
-            enabled,
-            [{"cluster2", {allow, [{bucket, <<"bucket-1">>}]}, {block,[]}}],
-            [{"1","1"}, {"1","2"}, {"1","3"}]
-        },
-        {
-            201, %% bucket - not match
-            enabled,
-            [{"cluster2", {allow, [{bucket, <<"bucket-4">>}]}, {block,[]}}],
-            []
-        },
-        {
-            202, %% not_bucket - match
-            enabled,
-            [{"cluster2", {allow, [{lnot, {bucket, <<"bucket-1">>}}]}, {block,[]}}],
-            [{"2","1"}, {"2","2"}, {"2","3"}, {"3","1"}, {"3","2"}, {"3","3"},
-                {{"1", "1"},"1"}, {{"1", "1"},"2"}, {{"1", "1"},"3"}, {{"1", "2"},"1"}, {{"1", "2"},"2"}, {{"1", "2"},"3"}, {{"1", "3"},"1"}, {{"1", "3"},"2"}, {{"1", "3"},"3"}]
-        },
-        {
-            203, %% not_bucket - not match
-            enabled,
-            [{"cluster2", {allow, [{lnot, {bucket, <<"bucket-4">>}}]}, {block,[]}}],
-            all_bkeys()
-        },
-        {
-            204,
-            enabled,
-            [{"cluster2", {allow, [{bucket, {<<"type-1">>, <<"bucket-1">>}}]}, {block,[]}}],
-            [{{"1","1"},"1"}, {{"1","1"},"2"}, {{"1","1"},"3"}]
-        },
-        {
-            205,
-            enabled,
-            [{"cluster2", {allow, [{bucket, {<<"type-1">>, <<"bucket-2">>}}]}, {block,[]}}],
-            [{{"1","2"},"1"}, {{"1","2"},"2"}, {{"1","2"},"3"}]
-        },
-        {
-            206,
-            enabled,
-            [{"cluster2", {allow, [{bucket, {<<"type-1">>, <<"bucket-3">>}}]}, {block,[]}}],
-            [{{"1","3"},"1"}, {{"1","3"},"2"}, {{"1","3"},"3"}]
-        },
-        {
-            207,
-            enabled,
-            [{"cluster2", {allow, [{bucket, {<<"type-2">>, <<"bucket-1">>}}]}, {block,[]}}],
-            []
-        },
-        {
-            208,
-            enabled,
-            [{"cluster2", {allow, [{lnot, {bucket, {<<"type-1">>, <<"bucket-1">>}}}]}, {block,[]}}],
-                all_bkeys() -- [{{"1","1"},"1"}, {{"1","1"},"2"}, {{"1","1"},"3"}]
-        },
-        {
-            209,
-            enabled,
-            [{"cluster2", {allow, [{lnot, {bucket, {<<"type-1">>, <<"bucket-2">>}}}]}, {block,[]}}],
-                all_bkeys() -- [{{"1","2"},"1"}, {{"1","2"},"2"}, {{"1","2"},"3"}]
-        },
-        {
-            210,
-            enabled,
-            [{"cluster2", {allow, [{lnot, {bucket, {<<"type-1">>, <<"bucket-3">>}}}]}, {block,[]}}],
-                all_bkeys() -- [{{"1","3"},"1"}, {{"1","3"},"2"}, {{"1","3"},"3"}]
-        },
-        {
-            211,
-            enabled,
-            [{"cluster2", {allow, [{lnot, {bucket, {<<"type-2">>, <<"bucket-1">>}}}]}, {block,[]}}],
-            all_bkeys()
-        }
-    ];
+    Configs =
+        [
+            {
+                200,
+                enabled,
+                [{"cluster2", {allow, [{bucket, <<"bucket-1">>}]}, {block,[]}}],
+                [{"1","1"}, {"1","2"}, {"1","3"}]
+            },
+            {
+                202,
+                enabled,
+                [{"cluster2", {allow, [{bucket, <<"bucket-4">>}]}, {block,[]}}],
+                []
+            },
+            {
+                204,
+                enabled,
+                [{"cluster2", {allow, [{bucket, {<<"type-1">>, <<"bucket-1">>}}]}, {block,[]}}],
+                [{{"1","1"},"1"}, {{"1","1"},"2"}, {{"1","1"},"3"}]
+            },
+            {
+                206,
+                enabled,
+                [{"cluster2", {allow, [{bucket, {<<"type-2">>, <<"bucket-1">>}}]}, {block,[]}}],
+                []
+            }
+        ],
+    lists:sort(Configs ++ lists:map(fun not_rule/1, Configs));
 get_config(metadata) ->
-    [
-        {
-            300, %% metadata - match
-            enabled,
-            [{"cluster2", {allow, [{metadata,{filter, "2"}}]}, {block,[]}}],
-            [{"1","2"},{"2","2"}, {"3","2"}, {{"1", "1"},"2"}, {{"1", "2"},"2"}, {{"1", "3"},"2"}]
-        },
-        {
-            301, %% metadata - not match 1
-            enabled,
-            [{"cluster2", {allow, [{metadata,{filter, "4"}}]}, {block,[]}}],
-            []
-        },
-        {
-            302, %% metadata - not match 2
-            enabled,
-            [{"cluster2", {allow, [{metadata,{other, "2"}}]}, {block,[]}}],
-            []
-        },
-        {
-            303, %% metadata - not match 3
-            enabled,
-            [{"cluster2", {allow, [{metadata,{other}}]}, {block,[]}}],
-            []
-        },
-        {
-            304, %% metadata - all
-            enabled,
-            [{"cluster2", {allow, [{metadata,{filter}}]}, {block,[]}}],
-            [{"1","2"}, {"1","3"}, {"2","2"}, {"2","3"}, {"3","2"}, {"3","3"}, {{"1", "1"},"2"}, {{"1", "1"},"3"}, {{"1", "2"},"2"}, {{"1", "2"},"3"}, {{"1", "3"},"2"}, {{"1", "3"},"3"}]
-        },
-        {
-            305, %% not_metadata - match
-            enabled,
-            [{"cluster2", {allow, [{lnot, {metadata,{filter, "2"}}}]}, {block,[]}}],
-            [{"1","1"}, {"1","3"}, {"2","1"}, {"2","3"}, {"3","1"}, {"3","3"},
-                {{"1", "1"},"1"}, {{"1", "1"},"3"}, {{"1", "2"},"1"}, {{"1", "2"},"3"}, {{"1", "3"},"1"}, {{"1", "3"},"3"}]
-        },
-        {
-            306, %% not_metadata - not match 1
-            enabled,
-            [{"cluster2", {allow, [{lnot, {metadata,{filter, "4"}}}]}, {block,[]}}],
-            all_bkeys()
-        },
-        {
-            307, %% not_metadata - not match 2
-            enabled,
-            [{"cluster2", {allow, [{lnot, {metadata,{other, "2"}}}]}, {block,[]}}],
-            all_bkeys()
-        },
-        {
-            308, %% not_metadata - not match 3
-            enabled,
-            [{"cluster2", {allow, [{lnot, {metadata,{other}}}]}, {block,[]}}],
-            all_bkeys()
-        },
-        {
-            309, %% not_metadata - all
-            enabled,
-            [{"cluster2", {allow, [{lnot, {metadata,{filter}}}]}, {block,[]}}],
-            [{"1","1"}, {"2","1"}, {"3","1"}, {{"1", "1"},"1"},{{"1", "2"},"1"},{{"1", "3"},"1"}]
-        }
-    ].
+    Configs =
+        [
+            {
+                300,
+                enabled,
+                [{"cluster2", {allow, [{metadata,{filter}}]}, {block,[]}}],
+                [{"1","2"}, {"1","3"}, {"2","2"}, {"2","3"}, {"3","2"}, {"3","3"}, {{"1", "1"},"2"}, {{"1", "1"},"3"}, {{"1", "2"},"2"}, {{"1", "2"},"3"}, {{"1", "3"},"2"}, {{"1", "3"},"3"}]
+            },
+            {
+                302,
+                enabled,
+                [{"cluster2", {allow, [{metadata,{other}}]}, {block,[]}}],
+                []
+            },
+            {
+                304,
+                enabled,
+                [{"cluster2", {allow, [{metadata,{filter, "2"}}]}, {block,[]}}],
+                [{"1","2"},{"2","2"}, {"3","2"}, {{"1", "1"},"2"}, {{"1", "2"},"2"}, {{"1", "3"},"2"}]
+            },
+            {
+                306,
+                enabled,
+                [{"cluster2", {allow, [{metadata,{filter, "4"}}]}, {block,[]}}],
+                []
+            },
+            {
+                308,
+                enabled,
+                [{"cluster2", {allow, [{metadata,{other, "2"}}]}, {block,[]}}],
+                []
+            }
+        ],
+    lists:sort(Configs ++ lists:map(fun not_rule/1, Configs));
+get_config(lastmod_age) ->
+    Configs =
+        [
+            {
+                400,
+                enabled,
+                [{"cluster2", {allow, [{lastmod_age_less_than, -1000}]}, {block,[]}}],
+                []
+            },
+            {
+                402,
+                enabled,
+                [{"cluster2", {allow, [{lastmod_age_less_than, 1000}]}, {block,[]}}],
+                all_bkeys()
+            },
+            {
+                404,
+                enabled,
+                [{"cluster2", {allow, [{lastmod_age_greater_than, -1000}]}, {block,[]}}],
+                all_bkeys()
+            },
+            {
+                406,
+                enabled,
+                [{"cluster2", {allow, [{lastmod_age_greater_than, 1000}]}, {block,[]}}],
+                []
+            }
+        ],
+    lists:sort(Configs ++ lists:map(fun not_rule/1, Configs));
+get_config(lastmod) ->
+    Configs =
+        [
+            {
+                500,
+                enabled,
+                [{"cluster2", {allow, [{lastmod_less_than, 0}]}, {block,[]}}],
+                []
+            },
+            {
+                502,
+                enabled,
+                [{"cluster2", {allow, [{lastmod_less_than, 4294967295}]}, {block,[]}}],
+                all_bkeys()
+            },
+            {
+                504,
+                enabled,
+                [{"cluster2", {allow, [{lastmod_greater_than, 0}]}, {block,[]}}],
+                all_bkeys()
+            },
+            {
+                506,
+                enabled,
+                [{"cluster2", {allow, [{lastmod_greater_than, 4294967295}]}, {block,[]}}],
+                []
+            }
+        ],
+    lists:sort(Configs ++ lists:map(fun not_rule/1, Configs)).
 
+not_rule(Config) ->
+    {N, enabled, [{Name, {allow, [Rule]}, {block, []}}], Expected} = Config,
+    {N+1, enabled, [{Name, {allow, [{lnot, Rule}]}, {block, []}}], all_bkeys() -- Expected}.
