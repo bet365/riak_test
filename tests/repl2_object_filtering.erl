@@ -87,7 +87,8 @@ merge_configs_helper(Config1, Config2) ->
     S2 = sets:from_list(E2),
     S3 = sets:intersection(S1, S2),
     E3 = sets:to_list(S3),
-    {N1+N2, Enabled, [{ClusterName, {allow, [R1++R2]}, {block, []}}], E3}.
+    Rule = lists:flatten(R1++R2),
+    {N1+N2, Enabled, [{ClusterName, {allow, [Rule]}, {block, []}}], E3}.
 
 
 
