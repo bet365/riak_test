@@ -50,10 +50,10 @@ rtq_bucket_filtering_test(ClusterNodes) ->
 
     lager:info("Add filtered buckets for SinkA and SinkB to leader ~p", [SourceLeader]),
 
-    add_bucket_filtering(SourceLeader, binary_to_list(?SINKA_BUCKET), "SinkA"),
+    add_bucket_filtering(SourceLeader, binary_to_list(?SINKB_BUCKET), "SinkA"),
     rt:wait_until_ring_converged(SourceNodes),
 
-    add_bucket_filtering(SourceLeader, binary_to_list(?SINKB_BUCKET), "SinkB"),
+    add_bucket_filtering(SourceLeader, binary_to_list(?SINKA_BUCKET), "SinkB"),
 
     lager:info("Waiting for the ring to converge"),
     rt:wait_until_ring_converged(SourceNodes),

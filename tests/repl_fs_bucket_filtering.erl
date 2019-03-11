@@ -92,7 +92,7 @@ run_test(ClusterNodes) ->
     %% -------------------------------------------------------------------------
 
     lager:info("Add bucket filtering rules from source to sink nodes"),
-    add_bucket_filtering(SourceLeader, ?SINK_A_BKT, "B"),
+    add_bucket_filtering(SourceLeader, ?SINK_B_BKT, "B"),
     rt:wait_until_ring_converged(SourceNodes),
 
     %% -------------------------------------------------------------------------
