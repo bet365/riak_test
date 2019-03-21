@@ -24,25 +24,33 @@ confirm() ->
             [merge_configs([Config1, Config2]) || Config1 <- get_config(metadata), Config2 <- get_config(lastmod)],
             [merge_configs([Config1, Config2]) || Config1 <- get_config(lastmod), Config2 <- get_config(lastmod_age)]
         ]),
-    DoubleTests4 = lists:flatten(
-        [
-            [merge_configs([Config1, Config2, Config3]) || Config1 <- get_config(bucket), Config2 <- get_config(metadata), Config3 <- get_config(lastmod_age)],
-            [merge_configs([Config1, Config2, Config3]) || Config1 <- get_config(bucket), Config2 <- get_config(metadata), Config3 <- get_config(lastmod)],
-            [merge_configs([Config1, Config2, Config3]) || Config1 <- get_config(bucket), Config2 <- get_config(lastmod), Config3 <- get_config(lastmod_age)],
-            [merge_configs([Config1, Config2, Config3]) || Config1 <- get_config(metadata), Config2 <- get_config(lastmod), Config3 <- get_config(lastmod_age)]
-        ]),
+%%    DoubleTests4 = lists:flatten(
+%%        [
+%%            [merge_configs([Config1, Config2, Config3]) || Config1 <- get_config(bucket), Config2 <- get_config(metadata), Config3 <- get_config(lastmod_age)],
+%%            [merge_configs([Config1, Config2, Config3]) || Config1 <- get_config(bucket), Config2 <- get_config(metadata), Config3 <- get_config(lastmod)],
+%%            [merge_configs([Config1, Config2, Config3]) || Config1 <- get_config(bucket), Config2 <- get_config(lastmod), Config3 <- get_config(lastmod_age)],
+%%            [merge_configs([Config1, Config2, Config3]) || Config1 <- get_config(metadata), Config2 <- get_config(lastmod), Config3 <- get_config(lastmod_age)]
+%%        ]),
 
     DoubleTests1 = get_config(bucket) ++ get_config(metadata) ++ get_config(lastmod_age) ++ get_config(lastmod),
     DoubleTests3 = DoubleTests2 ++ lists:map(fun not_rule/1, DoubleTests2),
-    DoubleTests5 = DoubleTests4 ++ lists:map(fun not_rule/1, DoubleTests4),
-    DoubleTests = DoubleTests1 ++ DoubleTests3 ++ DoubleTests5,
+%%    DoubleTests5 = DoubleTests4 ++ lists:map(fun not_rule/1, DoubleTests4),
+    DoubleTests = DoubleTests1 ++ DoubleTests3, %% ++ DoubleTests5,
 
     Tests = {SingleTests, DoubleTests},
 
-    Clusters = make_clusters(),
-    run_all_tests_realtime(Tests, Clusters),
-    destroy_clusters(Clusters),
-    run_all_tests_fullsync(Tests, make_clusters()),
+    Flag = fullsync,
+    case Flag of
+        all ->
+            Clusters = make_clusters(),
+            run_all_tests_realtime(Tests, Clusters),
+            destroy_clusters(Clusters),
+            run_all_tests_fullsync(Tests, make_clusters());
+        realtime ->
+            run_all_tests_realtime(Tests, make_clusters());
+        fullsync ->
+            run_all_tests_fullsync(Tests, make_clusters())
+    end,
     pass.
 
 make_clusters() ->
@@ -123,7 +131,7 @@ run_test_single(realtime, Test, Clusters) ->
     ?assertEqual(pass, realtime_test(Test, false, "repl", Clusters)),
     ?assertEqual(pass, realtime_test(Test, false, "realtime", Clusters)).
 
-print_test(Number, Mode, Config) ->
+print_test(Number, Mode, Config, ExpectedList) ->
     ReplMode = fullsync,
     lager:info("---------------------------------------"),
     lager:info("---------------------------------------"),
@@ -132,11 +140,12 @@ print_test(Number, Mode, Config) ->
     lager:info("Repl Mode: ~p ~n", [ReplMode]),
     lager:info("Object Filtering Mode: ~p ~n", [Mode]),
     lager:info("Config: ~p ~n", [Config]),
+    lager:info("Expected: ~p ~n", [lists:sort(ExpectedList)]),
     lager:info("---------------------------------------"),
     lager:info("---------------------------------------"),
     lager:info("---------------------------------------").
 
-print_test(Number, Mode, SendToCluster3, Config) ->
+print_test(Number, Mode, SendToCluster3, Config, ExpectedList) ->
     ReplMode = realtime,
     lager:info("---------------------------------------"),
     lager:info("---------------------------------------"),
@@ -146,6 +155,7 @@ print_test(Number, Mode, SendToCluster3, Config) ->
     lager:info("Object Filtering Mode: ~p ~n", [Mode]),
     lager:info("Send To Cluster 3: ~p ~n", [SendToCluster3]),
     lager:info("Config: ~p ~n", [Config]),
+    lager:info("Expected: ~p ~n", [lists:sort(ExpectedList)]),
     lager:info("---------------------------------------"),
     lager:info("---------------------------------------"),
     lager:info("---------------------------------------").
@@ -153,51 +163,55 @@ print_test(Number, Mode, SendToCluster3, Config) ->
 %% ================================================================================================================== %%
 %%                                              Tests                                                                 %%
 %% ================================================================================================================== %%
-fullsync_test({0,_,Config,_}, Mode, [Cluster1, Cluster2, Cluster3]) ->
-    print_test(0, Mode, Config),
+fullsync_test({0,_,Config, ExpectedList}, Mode, [Cluster1, Cluster2, Cluster3]) ->
+    print_test(0, Mode, Config, ExpectedList),
     put_all_objects(Cluster1, 0, fullsync, Mode),
-    start_fullsync(Cluster1, "cluster2"),
-    %% ================================================================== %%
+
     Expected1 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- all_bkeys()],
+    ?assertEqual(true, check_objects("cluster1", Cluster1, Expected1, erlang:now(), 240)),
+    %% ================================================================== %%
+
+    start_fullsync(Cluster1, "cluster2"),
     Expected2 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- all_bkeys()],
-    ?assertEqual(true, check_objects("cluster1", Cluster1, Expected1, erlang:now(), 30)),
-    ?assertEqual(true, check_objects("cluster2", Cluster2, Expected2, erlang:now(), 30)),
-    cleanup([Cluster1, Cluster2, Cluster3]),
+    ?assertEqual(true, check_objects("cluster2", Cluster2, Expected2, erlang:now(), 240)),
+    %% ================================================================== %%
+
+    cleanup([Cluster1, Cluster2, Cluster3], ["cluster1", "cluster2", "cluster3"]),
     stop_fullsync(Cluster1, "cluster2"),
     pass;
 fullsync_test({TestNumber, Status, Config, ExpectedList}, Mode, C=[Cluster1, Cluster2, Cluster3]) ->
-    print_test(TestNumber, Mode, Config),
+    print_test(TestNumber, Mode, Config, ExpectedList),
     write_terms("/tmp/config1", Config),
     set_object_filtering(Cluster1, Status, "/tmp/config1", Mode),
     check_object_filtering_config(C),
     %% ================================================================== %%
     put_all_objects(Cluster1, TestNumber, fullsync, Mode),
-    start_fullsync(Cluster1, "cluster2"),
-    %% ================================================================== %%
-
     Expected1 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- all_bkeys()],
+    ?assertEqual(true, check_objects("cluster1", Cluster1, Expected1, erlang:now(), 240)),
+    %% ================================================================== %%
+    start_fullsync(Cluster1, "cluster2"),
     Expected2 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- ExpectedList],
-    ?assertEqual(true, check_objects("cluster1", Cluster1, Expected1, erlang:now(), 30)),
-    ?assertEqual(true, check_objects("cluster2", Cluster2, Expected2, erlang:now(), 30)),
-    cleanup([Cluster1, Cluster2, Cluster3]),
+    ?assertEqual(true, check_objects("cluster2", Cluster2, Expected2, erlang:now(), 240)),
+    %% ================================================================== %%
+    cleanup([Cluster1, Cluster2, Cluster3], ["cluster1", "cluster2", "cluster3"]),
     stop_fullsync(Cluster1, "cluster2"),
     pass.
 
-realtime_test({0,_,Config,_}, SendToCluster3, Mode, [Cluster1, Cluster2, Cluster3]) ->
-    print_test(0, Mode, SendToCluster3, Config),
+realtime_test({0,_,Config, ExpectedList}, SendToCluster3, Mode, [Cluster1, Cluster2, Cluster3]) ->
+    print_test(0, Mode, SendToCluster3, Config, ExpectedList),
     put_all_objects(Cluster1, 0, {realtime, SendToCluster3}, Mode),
     %% ================================================================== %%
 
     Expected1 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- all_bkeys()],
     Expected2 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- all_bkeys()],
     Expected3 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- all_bkeys()],
-    ?assertEqual(true, check_objects("cluster1", Cluster1, Expected1, erlang:now(), 30)),
-    ?assertEqual(true, check_objects("cluster2", Cluster2, Expected2, erlang:now(), 30)),
-    ?assertEqual(true, check_objects("cluster3", Cluster2, Expected3, erlang:now(), 30)),
-    cleanup([Cluster1, Cluster2, Cluster3]),
+    ?assertEqual(true, check_objects("cluster1", Cluster1, Expected1, erlang:now(), 240)),
+    ?assertEqual(true, check_objects("cluster2", Cluster2, Expected2, erlang:now(), 240)),
+    ?assertEqual(true, check_objects("cluster3", Cluster2, Expected3, erlang:now(), 240)),
+    cleanup([Cluster1, Cluster2, Cluster3], ["cluster1", "cluster2", "cluster3"]),
     pass;
 realtime_test({TestNumber, Status, Config, ExpectedList}, SendToCluster3, Mode, C=[Cluster1, Cluster2, Cluster3]) ->
-    print_test(TestNumber, Mode, SendToCluster3, Config),
+    print_test(TestNumber, Mode, SendToCluster3, Config, ExpectedList),
     write_terms("/tmp/config1", Config),
     set_object_filtering(Cluster1, Status, "/tmp/config1", "realtime"),
     Config2 =
@@ -219,10 +233,10 @@ realtime_test({TestNumber, Status, Config, ExpectedList}, SendToCluster3, Mode, 
             true -> Expected2;
             false-> []
         end,
-    ?assertEqual(true, check_objects("cluster1", Cluster1, Expected1, erlang:now(), 30)),
-    ?assertEqual(true, check_objects("cluster2", Cluster2, Expected2, erlang:now(), 30)),
-    ?assertEqual(true, check_objects("cluster3", Cluster3, Expected3, erlang:now(), 30)),
-    cleanup([Cluster1, Cluster2, Cluster3]),
+    ?assertEqual(true, check_objects("cluster1", Cluster1, Expected1, erlang:now(), 240)),
+    ?assertEqual(true, check_objects("cluster2", Cluster2, Expected2, erlang:now(), 240)),
+    ?assertEqual(true, check_objects("cluster3", Cluster3, Expected3, erlang:now(), 240)),
+    cleanup([Cluster1, Cluster2, Cluster3], ["cluster1", "cluster2", "cluster3"]),
     pass.
 
 %% ================================================================================================================== %%
@@ -251,7 +265,7 @@ check_objects(ClusterName, Cluster, Expected, Time, Timeout) ->
 check_object_helper(ClusterName, Cluster, Expected, Time, Timeout) ->
     Actual = get_all_objects(Cluster),
     Result = lists:sort(Actual) == lists:sort(Expected),
-    case {Result, timer:now_diff(erlang:now(), Time) > Timeout*1000*1000} of
+    case {Result, timer:now_diff(erlang:now(), Time) > Timeout*1000000} of
         {true, _} ->
             print_objects(ClusterName, Actual),
             true;
@@ -328,10 +342,11 @@ make_clusters_helper() ->
         {riak_repl,
             [
                 %% turn off fullsync
+                {fullsync_interval, 0},
                 {fullsync_strategy, keylist},
                 {fullsync_on_connect, false},
                 {fullsync_interval, disabled},
-                {max_fssource_node, 8},
+                {max_fssource_node, 64},
                 {max_fssink_node, 64},
                 {max_fssource_cluster, 64},
                 {default_bucket_props, [{n_val, 3}, {allow_mult, false}]},
@@ -341,7 +356,7 @@ make_clusters_helper() ->
 
         {riak_kv,
             [
-                {backend_reap_threshold, 86400},
+
                 {override_capability, [{object_hash_version, [{use, legacy}]}]}
 
             ]}
@@ -370,6 +385,11 @@ make_clusters_helper() ->
     rt:wait_until_ring_converged(Cluster2),
     repl_util:name_cluster(hd(Cluster3), "cluster3"),
     rt:wait_until_ring_converged(Cluster3),
+
+    rt:wait_until_transfers_complete(Cluster1),
+    rt:wait_until_transfers_complete(Cluster2),
+    rt:wait_until_transfers_complete(Cluster3),
+
     [Cluster1, Cluster2, Cluster3].
 
 
@@ -450,8 +470,7 @@ write_terms(Filename, List) ->
     Text = lists:map(Format, List),
     file:write_file(Filename, Text).
 
-cleanup(Clusters) ->
-    ClusterNames = ["cluster1", "cluster2", "cluster3"],
+cleanup(Clusters, ClusterNames) ->
     clear_config(Clusters),
     check_object_filtering_config(Clusters),
     delete_data(Clusters, ClusterNames),
@@ -466,8 +485,11 @@ delete_data([Cluster|Rest1], [ClusterName|Rest2]) ->
     delete_data(Rest1, Rest2).
 
 check([], []) -> ?assertEqual(true, true);
-check([Cluster|Rest1], [ClusterName|Rest2]) ->
-    ?assertEqual(true, check_objects(ClusterName, Cluster, [], erlang:now(), 10)), check(Rest1, Rest2).
+check(Clusters = [Cluster|Rest1], ClusterNames =[ClusterName|Rest2]) ->
+    case check_objects(ClusterName, Cluster, [], erlang:now(), 10) of
+        true -> check(Rest1, Rest2);
+        false -> cleanup(Clusters, ClusterNames)
+    end.
 
 delete_files() ->
     file:delete("/tmp/config1"),
@@ -492,7 +514,13 @@ print_objects_helper([{Bucket, Key}|Rest]) ->
 
 get_config() ->
     [
-        {0, disabled, [{"cluster2", {allow, []}, {block,[]}}], []},
+        {
+            0,
+            disabled,
+            [{"cluster2", {allow, []}, {block,[]}}],
+            all_bkeys()
+        },
+
         {
             101,
             disabled,
@@ -639,25 +667,25 @@ get_config(lastmod_age) ->
             {
                 400,
                 enabled,
-                [{"cluster2", {allow, [{lastmod_age_less_than, -1000}]}, {block,[]}}],
+                [{"cluster2", {allow, [{lastmod_age_less_than, -100000}]}, {block,[]}}],
                 []
             },
             {
                 402,
                 enabled,
-                [{"cluster2", {allow, [{lastmod_age_less_than, 1000}]}, {block,[]}}],
+                [{"cluster2", {allow, [{lastmod_age_less_than, 100000}]}, {block,[]}}],
                 all_bkeys()
             },
             {
                 404,
                 enabled,
-                [{"cluster2", {allow, [{lastmod_age_greater_than, -1000}]}, {block,[]}}],
+                [{"cluster2", {allow, [{lastmod_age_greater_than, -100000}]}, {block,[]}}],
                 all_bkeys()
             },
             {
                 406,
                 enabled,
-                [{"cluster2", {allow, [{lastmod_age_greater_than, 1000}]}, {block,[]}}],
+                [{"cluster2", {allow, [{lastmod_age_greater_than, 100000}]}, {block,[]}}],
                 []
             }
         ],
