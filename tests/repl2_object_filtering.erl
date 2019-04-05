@@ -362,13 +362,19 @@ make_clusters_helper() ->
             ]}
     ],
     Nodes = rt:deploy_nodes(8, Conf, [riak_kv, riak_repl]),
+
     Cluster1 = lists:sublist(Nodes, 1, 3),
+    Cluster2 = lists:sublist(Nodes, 4, 3),
+    Cluster3 = lists:sublist(Nodes, 7, 2),
+
+    [rpc:call(N1, erlang, disconnect_node, [N2]) || N1 <- Cluster1, N2 <- Cluster2 ++ Cluster3],
+    [rpc:call(N1, erlang, disconnect_node, [N2]) || N1 <- Cluster2, N2 <- Cluster1 ++ Cluster3],
+    [rpc:call(N1, erlang, disconnect_node, [N2]) || N1 <- Cluster3, N2 <- Cluster1 ++ Cluster2],
+
     lager:info("Build cluster 1"),
     repl_util:make_cluster(Cluster1),
-    Cluster2 = lists:sublist(Nodes, 4, 3),
     lager:info("Build cluster 2"),
     repl_util:make_cluster(Cluster2),
-    Cluster3 = lists:sublist(Nodes, 7, 2),
     lager:info("Build cluster 3"),
     repl_util:make_cluster(Cluster3),
 
