@@ -39,13 +39,14 @@ confirm() ->
 
     Tests = {SingleTests, DoubleTests},
 
-    Flag = fullsync,
+    Flag = all,
     case Flag of
         all ->
-            Clusters = make_clusters(),
-            run_all_tests_realtime(Tests, Clusters),
-            destroy_clusters(Clusters),
-            run_all_tests_fullsync(Tests, make_clusters());
+            C1 = make_clusters(),
+            run_all_tests_realtime(Tests, C1),
+            destroy_clusters(C1),
+            C2 = make_clusters(),
+            run_all_tests_fullsync(Tests, C2);
         realtime ->
             run_all_tests_realtime(Tests, make_clusters());
         fullsync ->
@@ -58,14 +59,12 @@ make_clusters() ->
     [Cluster1, Cluster2, Cluster3] = make_clusters_helper(),
     connect_clusters({hd(Cluster1),"cluster1"}, {hd(Cluster2), "cluster2"}),
     connect_clusters({hd(Cluster2),"cluster2"}, {hd(Cluster3), "cluster3"}),
-
-    %% create bucket types
-    rpc:call(hd(Cluster1), riak_kv_console, bucket_type_create, [["type-1", "{\"props\":{\"allow_mult\":\"false\",\"dvv_enabled\":false}}"]]),
-    rpc:call(hd(Cluster2), riak_kv_console, bucket_type_create, [["type-1", "{\"props\":{\"allow_mult\":\"false\",\"dvv_enabled\":false}}"]]),
-    rpc:call(hd(Cluster3), riak_kv_console, bucket_type_create, [["type-1", "{\"props\":{\"allow_mult\":\"false\",\"dvv_enabled\":false}}"]]),
-    rpc:call(hd(Cluster1), riak_kv_console, bucket_type_activate, [["type-1"]]),
-    rpc:call(hd(Cluster2), riak_kv_console, bucket_type_activate, [["type-1"]]),
-    rpc:call(hd(Cluster3), riak_kv_console, bucket_type_activate, [["type-1"]]),
+    rt:create_and_activate_bucket_type(hd(Cluster1), <<"type-1">>, [{allow_mult, false}, {dvv_enabled, false}]),
+    rt:create_and_activate_bucket_type(hd(Cluster2), <<"type-1">>, [{allow_mult, false}, {dvv_enabled, false}]),
+    rt:create_and_activate_bucket_type(hd(Cluster3), <<"type-1">>, [{allow_mult, false}, {dvv_enabled, false}]),
+    rt:wait_until_bucket_type_status(<<"type-1">>, active, [hd(Cluster1)]),
+    rt:wait_until_bucket_type_status(<<"type-1">>, active, [hd(Cluster2)]),
+    rt:wait_until_bucket_type_status(<<"type-1">>, active, [hd(Cluster3)]),
     [Cluster1, Cluster2, Cluster3].
 
 destroy_clusters(Clusters) ->
@@ -320,8 +319,9 @@ check_object_filtering_config(Clusters) ->
 
 check_object_filtering_config_helper(Cluster) ->
     Node = hd(Cluster),
-    {status_all_nodes, StatusList} = rpc:call(Node, riak_repl2_object_filter, status_all, []),
-    check_configs_equal(Cluster, StatusList).
+    {StatusAllNodes, _} = rpc:call(Node, riak_core_util, rpc_every_member, [riak_repl2_object_filter_console, get_status, [], 10000]),
+    Result = [R ||{status_single_node, R} <- StatusAllNodes],
+    check_configs_equal(Cluster, lists:sort(Result)).
 
 check_configs_equal(Cluster, StatusList) ->
     S1 = [Status || {_, Status} <- StatusList],
