@@ -231,7 +231,7 @@ start_and_wait_until_fullsync_complete(Node, Cluster, NotifyPid) ->
 
 start_and_wait_until_fullsync_complete(Node, Cluster, NotifyPid, Retries) ->
     Status0 = rpc:call(Node, riak_repl_console, status, [quiet]),
-    Count0 = proplists:get_value(server_fullsyncs, Status0),
+    Count0 = proplists:get_value(fullsyncs_completed, Status0, 0),
     Count = fullsync_count(Count0, Status0, Cluster),
 
     lager:info("Waiting for fullsync count to be ~p", [Count]),
@@ -282,7 +282,7 @@ make_fullsync_wait_fun(Node, Count) ->
                 {badrpc, _} ->
                     false;
                 _ ->
-                    case proplists:get_value(server_fullsyncs, Status) of
+                    case proplists:get_value(fullsyncs_completed, Status) of
                         C when C >= Count ->
                             true;
                         _ ->
