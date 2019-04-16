@@ -23,7 +23,7 @@
 # Export different tags to get a different build. N.B. You will need to
 # remove the builds from kerl (e.g., kerl delete build $BUILDNAME) and
 # possibly remove the directories above.
-: ${R16_TAG:="OTP_R16B02_basho10-O3"}
+: ${R16_TAG:="OTP_R16B02_basho10"}
 #: ${R15_TAG:="basho_OTP_R15B01p"}
 
 # By default the Open Source version of Riak will be used, but for internal
@@ -63,10 +63,9 @@ kerl()
     RELEASE=$1
     BUILDNAME=$2
 
-    export CFLAGS="-g -O2"
-    export LDFLAGS="-g"
+    export CFLAGS="-O2"
     if [ -n "`uname -r | grep el6`" ]; then
-        export CFLAGS="-g -DOPENSSL_NO_EC=1"
+        export CFLAGS="-O2 -DOPENSSL_NO_EC=1"
     fi
     BUILDFLAGS="--disable-hipe --enable-smp-support --without-odbc"
     if [ $(uname -s) = "Darwin" ]; then
