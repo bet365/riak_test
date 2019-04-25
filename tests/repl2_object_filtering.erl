@@ -437,7 +437,9 @@ check_fullsync_completed(_, _, 0, _, _,_) ->
     failed;
 check_fullsync_completed(Node, C2Name, Retries, Expected, Cluster2, Sleep) ->
     Status0 = rpc:call(Node, riak_repl_console, status, [quiet]),
-    Count = proplists:get_value(fullsyncs_completed, Status0, 0),
+    [{C2Name, List}] = proplists:get_value(fullsync_coordinator, Status0, []),
+    Count = proplists:get_value(fullsyncs_completed, List, 0),
+    rpc:call(Node, riak_repl_console, fullsync, [["start", C2Name]]),
     lager:info("fullsync completed count: ~p", [Count]),
     %% sleep because of the old bug where stats will crash if you call it too
     %% soon after starting a fullsync
