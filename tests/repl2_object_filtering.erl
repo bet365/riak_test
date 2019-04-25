@@ -24,18 +24,10 @@ confirm() ->
             [merge_configs([Config1, Config2]) || Config1 <- get_config(metadata), Config2 <- get_config(lastmod)],
             [merge_configs([Config1, Config2]) || Config1 <- get_config(lastmod), Config2 <- get_config(lastmod_age)]
         ])),
-%%    DoubleTests4 = lists:flatten(
-%%        [
-%%            [merge_configs([Config1, Config2, Config3]) || Config1 <- get_config(bucket), Config2 <- get_config(metadata), Config3 <- get_config(lastmod_age)],
-%%            [merge_configs([Config1, Config2, Config3]) || Config1 <- get_config(bucket), Config2 <- get_config(metadata), Config3 <- get_config(lastmod)],
-%%            [merge_configs([Config1, Config2, Config3]) || Config1 <- get_config(bucket), Config2 <- get_config(lastmod), Config3 <- get_config(lastmod_age)],
-%%            [merge_configs([Config1, Config2, Config3]) || Config1 <- get_config(metadata), Config2 <- get_config(lastmod), Config3 <- get_config(lastmod_age)]
-%%        ]),
 
     DoubleTests1 = get_config(bucket) ++ get_config(metadata) ++ get_config(lastmod_age) ++ get_config(lastmod),
     DoubleTests3 = DoubleTests2 ++ lists:map(fun not_rule/1, DoubleTests2),
-%%    DoubleTests5 = DoubleTests4 ++ lists:map(fun not_rule/1, DoubleTests4),
-    DoubleTests = DoubleTests1 ++ DoubleTests3, %% ++ DoubleTests5,
+    DoubleTests = DoubleTests1 ++ DoubleTests3,
 
     Tests = {SingleTests, DoubleTests},
 
@@ -46,7 +38,8 @@ confirm() ->
             run_all_tests_fullsync(Tests, C1),
             destroy_clusters(C1),
             C2 = make_clusters(),
-            run_all_tests_realtime(Tests, C2);
+            run_all_tests_realtime(Tests, C2),
+            destroy_clusters(C2);
         realtime ->
             run_all_tests_realtime(Tests, make_clusters());
         fullsync ->
@@ -110,8 +103,10 @@ run_all_tests_realtime({SingleTests, DoubleTests}, [Cluster1, Cluster2, Cluster3
     timer:sleep(60000).
 
 run_all_tests_fullsync({SingleTests, DoubleTests}, [Cluster1, Cluster2, Cluster3]) ->
+    start_fullsync(Cluster1, "cluster2"),
     [run_test_single(fullsync, Test, [Cluster1, Cluster2, Cluster3]) || Test <- SingleTests],
-    [run_test_double(fullsync, Test, [Cluster1, Cluster2, Cluster3]) || Test <- DoubleTests].
+    [run_test_double(fullsync, Test, [Cluster1, Cluster2, Cluster3]) || Test <- DoubleTests],
+    stop_fullsync(Cluster1, "cluster2").
 
 
 run_test_double(ReplMode, Test1={N,Status,[{Name, {allow, Allowed}, {block, []}}],Expected}, Clusters)->
@@ -169,9 +164,9 @@ fullsync_test({0,_,Config, ExpectedList}, Mode, [Cluster1, Cluster2, Cluster3]) 
     ?assertEqual(true, check_objects("cluster1", Cluster1, Expected1, erlang:now(), 240)),
     %% ================================================================== %%
     Expected2 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- all_bkeys()],
-    ok = start_fullsync_and_check(Cluster1, "cluster2", Expected2, Cluster2),
+    wait_for_fullsync_and_check(Cluster1, "cluster2", Expected2, Cluster2),
     ?assertEqual(true, check_objects("cluster2", Cluster2, Expected2, erlang:now(), 240)),
-    stop_fullsync(Cluster1, "cluster2"),
+%%    stop_fullsync(Cluster1, "cluster2"),
     %% ================================================================== %%
     cleanup([Cluster1, Cluster2, Cluster3], ["cluster1", "cluster2", "cluster3"]),
     pass;
@@ -186,9 +181,9 @@ fullsync_test({TestNumber, Status, Config, ExpectedList}, Mode, C=[Cluster1, Clu
     ?assertEqual(true, check_objects("cluster1", Cluster1, Expected1, erlang:now(), 240)),
     %% ================================================================== %%
     Expected2 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- ExpectedList],
-    ok = start_fullsync_and_check(Cluster1, "cluster2", Expected2, Cluster2),
+    wait_for_fullsync_and_check(Cluster1, "cluster2", Expected2, Cluster2),
     ?assertEqual(true, check_objects("cluster2", Cluster2, Expected2, erlang:now(), 240)),
-    stop_fullsync(Cluster1, "cluster2"),
+%%    stop_fullsync(Cluster1, "cluster2"),
     %% ================================================================== %%
     cleanup([Cluster1, Cluster2, Cluster3], ["cluster1", "cluster2", "cluster3"]),
     pass.
@@ -347,7 +342,7 @@ make_clusters_helper() ->
                 {max_fssource_node, 64},
                 {max_fssink_node, 64},
                 {max_fssource_cluster, 64},
-                {default_bucket_props, [{n_val, 3}, {allow_mult, false}]},
+                {default_bucket_props, [{n_val, 1}, {allow_mult, false}, {not_foundok, false}, {basic_quorum, true}]},
                 {override_capability,
                     [{default_bucket_props_hash, [{use, [consistent, datatype, n_val, allow_mult, last_write_wins]}]}]}
             ]},
@@ -425,25 +420,37 @@ stop_realtime(Cluster, C2Name) ->
     disable_realtime(Cluster, C2Name),
     rt:wait_until_ring_converged(Cluster).
 
-
-start_fullsync_and_check(Cluster, C2Name, Expected, Cluster2) ->
+start_fullsync(Cluster, C2Name) ->
     Node = hd(Cluster),
-    repl_util:enable_fullsync(Node, C2Name),
-    start_and_wait_until_fullsync_complete(Node, C2Name, 20, Expected, Cluster2).
-
-
-start_and_wait_until_fullsync_complete(Node, C2Name, Retries, Expected, Cluster2) ->
     lager:info("Starting fullsync on: ~p", [Node]),
-    rpc:call(Node, riak_repl_console, fullsync, [["start", C2Name]]),
+    repl_util:enable_fullsync(Node, C2Name),
+    rpc:call(Node, riak_repl_console, fullsync, [["start", C2Name]]).
+
+wait_for_fullsync_and_check(Cluster, C2Name, Expected, Cluster2) ->
+    wait_until_fullsync_complete(hd(Cluster), C2Name, 20, Expected, Cluster2).
+
+
+wait_until_fullsync_complete(Node, C2Name, Retries, Expected, Cluster2) ->
     check_fullsync_completed(Node, C2Name, Retries, Expected, Cluster2, 500).
 
 check_fullsync_completed(_, _, 0, _, _,_) ->
     failed;
 check_fullsync_completed(Node, C2Name, Retries, Expected, Cluster2, Sleep) ->
+    Status0 = rpc:call(Node, riak_repl_console, status, [quiet]),
+    Count = proplists:get_value(fullsyncs_completed, Status0, 0),
+    lager:info("fullsync completed count: ~p", [Count]),
     %% sleep because of the old bug where stats will crash if you call it too
     %% soon after starting a fullsync
-    lager:info("Retries left ~p", [Retries]),
     timer:sleep(round(Sleep)),
+
+    case rt:wait_until(make_fullsync_wait_fun(Node, Count+1), 100, 1000) of
+        ok ->
+            check_fullsync_objects(Node, C2Name, Retries, Expected, Cluster2, Sleep);
+        _ ->
+            check_fullsync_completed(Node, C2Name, Retries-1, Expected, Cluster2, Sleep)
+    end.
+
+check_fullsync_objects(Node, C2Name, Retries, Expected, Cluster2, Sleep) ->
     Actual = get_all_objects(Cluster2),
     case lists:sort(Actual) == lists:sort(Expected) of
         true ->
@@ -451,6 +458,22 @@ check_fullsync_completed(Node, C2Name, Retries, Expected, Cluster2, Sleep) ->
             ok;
         false ->
             check_fullsync_completed(Node, C2Name, Retries-1, Expected, Cluster2, Sleep*1.1)
+    end.
+
+make_fullsync_wait_fun(Node, Count) ->
+    fun() ->
+        Status = rpc:call(Node, riak_repl_console, status, [quiet]),
+        case Status of
+            {badrpc, _} ->
+                false;
+            _ ->
+                case proplists:get_value(fullsyncs_completed, Status) of
+                    C when C >= Count ->
+                        true;
+                    _ ->
+                        false
+                end
+        end
     end.
 
 stop_fullsync(Cluster, C2Name) ->
