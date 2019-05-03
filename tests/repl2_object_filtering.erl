@@ -427,11 +427,11 @@ start_fullsync(Cluster, C2Name) ->
     rpc:call(Node, riak_repl_console, fullsync, [["start", C2Name]]).
 
 wait_for_fullsync_and_check(Cluster, C2Name, Expected, Cluster2) ->
-    wait_until_fullsync_complete(hd(Cluster), C2Name, 20, Expected, Cluster2).
+    wait_until_fullsync_complete(hd(Cluster), C2Name, 11, Expected, Cluster2).
 
 
 wait_until_fullsync_complete(Node, C2Name, Retries, Expected, Cluster2) ->
-    check_fullsync_completed(Node, C2Name, Retries, Expected, Cluster2, 500).
+    check_fullsync_completed(Node, C2Name, Retries, Expected, Cluster2, 50).
 
 check_fullsync_completed(_, _, 0, _, _,_) ->
     failed;
@@ -447,9 +447,12 @@ check_fullsync_completed(Node, C2Name, Retries, Expected, Cluster2, Sleep) ->
 
     case rt:wait_until(make_fullsync_wait_fun(Node, Count+1), 100, 1000) of
         ok ->
-            check_fullsync_objects(Node, C2Name, Retries, Expected, Cluster2, Sleep);
+            check_fullsync_objects(Node, C2Name, Retries, Expected, Cluster2, Sleep*2);
         _ ->
-            check_fullsync_completed(Node, C2Name, Retries-1, Expected, Cluster2, Sleep)
+            stop_fullsync([Node], C2Name),
+            timer:sleep(2000),
+            start_fullsync([Node], C2Name),
+            check_fullsync_completed(Node, C2Name, Retries-1, Expected, Cluster2, Sleep*2)
     end.
 
 check_fullsync_objects(Node, C2Name, Retries, Expected, Cluster2, Sleep) ->
@@ -459,7 +462,7 @@ check_fullsync_objects(Node, C2Name, Retries, Expected, Cluster2, Sleep) ->
             lager:info("Fullsync on ~p complete", [Node]),
             ok;
         false ->
-            check_fullsync_completed(Node, C2Name, Retries-1, Expected, Cluster2, Sleep*1.1)
+            check_fullsync_completed(Node, C2Name, Retries-1, Expected, Cluster2, Sleep*2)
     end.
 
 make_fullsync_wait_fun(Node, Count) ->
