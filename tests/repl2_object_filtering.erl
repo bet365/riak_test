@@ -15,21 +15,10 @@ confirm() ->
     %% allow is changed to {allow, ['*']}
     %% block is changed to {block, Allowed}
     %% expected is now the inverse of what was expected in the first test
-    DoubleTests2 = lists:reverse(lists:flatten(
-        [
-            [merge_configs([Config1, Config2]) || Config1 <- get_config(bucket), Config2 <- get_config(metadata)],
-            [merge_configs([Config1, Config2]) || Config1 <- get_config(bucket), Config2 <- get_config(lastmod_age)],
-            [merge_configs([Config1, Config2]) || Config1 <- get_config(bucket), Config2 <- get_config(lastmod)],
-            [merge_configs([Config1, Config2]) || Config1 <- get_config(metadata), Config2 <- get_config(lastmod_age)],
-            [merge_configs([Config1, Config2]) || Config1 <- get_config(metadata), Config2 <- get_config(lastmod)],
-            [merge_configs([Config1, Config2]) || Config1 <- get_config(lastmod), Config2 <- get_config(lastmod_age)]
-        ])),
-
     DoubleTests1 = get_config(bucket) ++ get_config(metadata) ++ get_config(lastmod_age) ++ get_config(lastmod),
-    DoubleTests3 = DoubleTests2 ++ lists:map(fun not_rule/1, DoubleTests2),
-    DoubleTests = DoubleTests1 ++ DoubleTests3,
+    DoubleTests2 = DoubleTests1 ++ lists:map(fun not_rule_2/1, DoubleTests1),
 
-    Tests = {SingleTests, DoubleTests},
+    Tests = {SingleTests, DoubleTests2},
 
     Flag = all,
     case Flag of
@@ -63,34 +52,6 @@ make_clusters() ->
 destroy_clusters(Clusters) ->
     Nodes = lists:flatten(Clusters),
     rt:clean_cluster(Nodes).
-
-merge_configs(List) ->
-    merge_configs(List, []).
-
-merge_configs([], []) -> [];
-merge_configs([C], []) -> C;
-merge_configs([], Merged) ->
-    Merged;
-merge_configs([C], Merged) ->
-    merge_configs_helper(C, Merged);
-merge_configs([Config1, Config2 | Rest], []) ->
-    Merge1 = merge_configs_helper(Config1, Config2),
-    merge_configs(Rest, Merge1);
-merge_configs([Config1 | Rest], Merged) ->
-    Merge1 = merge_configs_helper(Config1, Merged),
-    merge_configs(Rest, Merge1).
-
-merge_configs_helper(Config1, Config2) ->
-    {N1, Enabled, [{ClusterName, {allow, R1}, {block, []}}], E1} = Config1,
-    {N2, Enabled, [{ClusterName, {allow, R2}, {block, []}}], E2} = Config2,
-    S1 = sets:from_list(E1),
-    S2 = sets:from_list(E2),
-    S3 = sets:intersection(S1, S2),
-    E3 = sets:to_list(S3),
-    Rule = lists:flatten(R1++R2),
-    {N1+N2, Enabled, [{ClusterName, {allow, [Rule]}, {block, []}}], E3}.
-
-
 
 run_all_tests_realtime({SingleTests, DoubleTests}, [Cluster1, Cluster2, Cluster3]) ->
     start_realtime(Cluster1, "cluster2"),
@@ -342,7 +303,7 @@ make_clusters_helper() ->
                 {max_fssource_node, 64},
                 {max_fssink_node, 64},
                 {max_fssource_cluster, 64},
-                {default_bucket_props, [{n_val, 1}, {allow_mult, false}, {not_foundok, false}, {basic_quorum, true}]},
+                {default_bucket_props, [{n_val, 3}, {allow_mult, false}]},
                 {override_capability,
                     [{default_bucket_props_hash, [{use, [consistent, datatype, n_val, allow_mult, last_write_wins]}]}]}
             ]},
@@ -768,3 +729,7 @@ get_config(lastmod) ->
 not_rule(Config) ->
     {N, enabled, [{Name, {allow, [Rule]}, {block, []}}], Expected} = Config,
     {N+1, enabled, [{Name, {allow, [{lnot, Rule}]}, {block, []}}], all_bkeys() -- Expected}.
+
+not_rule_2(Config) ->
+    {N, enabled, [{Name, {allow, [Rule]}, {block, []}}], Expected} = Config,
+    {N+1, enabled, [{Name, {allow, [{lnot, [Rule, {lnot, {bucket, <<"does not exist">>}}]}]}, {block, []}}], all_bkeys() -- Expected}.
