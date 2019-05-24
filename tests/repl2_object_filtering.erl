@@ -263,7 +263,10 @@ make_value(BN, KN, TestNumber, {{realtime, SendToCluster3}, OFMode}) -> list_to_
     ++ BN ++ "-" ++ KN ++ "-" ++ "realtime" ++ "-" ++ atom_to_list(SendToCluster3) ++ "-" ++ OFMode).
 
 make_dict("1") -> dict:new();
-make_dict(N) -> dict:from_list([{filter, N}]).
+make_dict(N) ->
+    MD_USERMETA = <<"X-Riak-Meta">>,
+    UserMetaData = [{<<"filter">>, <<N:32>>}],
+    dict:from_list([{filter, N}, {MD_USERMETA, UserMetaData}]).
 
 
 check_object_filtering_config(Clusters) ->
@@ -721,6 +724,41 @@ get_config(lastmod) ->
                 506,
                 enabled,
                 [{"cluster2", {allow, [{lastmod_greater_than, 4294967295}]}, {block,[]}}],
+                []
+            }
+        ],
+    lists:sort(Configs ++ lists:map(fun not_rule/1, Configs));
+get_config(user_metadata) ->
+    Configs =
+        [
+            {
+                300,
+                enabled,
+                [{"cluster2", {allow, [{user_metadata,{<<"filter">>}}]}, {block,[]}}],
+                [{"1","2"}, {"1","3"}, {"2","2"}, {"2","3"}, {"3","2"}, {"3","3"}, {{"1", "1"},"2"}, {{"1", "1"},"3"}, {{"1", "2"},"2"}, {{"1", "2"},"3"}, {{"1", "3"},"2"}, {{"1", "3"},"3"}]
+            },
+            {
+                302,
+                enabled,
+                [{"cluster2", {allow, [{user_metadata,{<<"other">>}}]}, {block,[]}}],
+                []
+            },
+            {
+                304,
+                enabled,
+                [{"cluster2", {allow, [{user_metadata,{<<"filter">>, <<2:32>>}}]}, {block,[]}}],
+                [{"1","2"},{"2","2"}, {"3","2"}, {{"1", "1"},"2"}, {{"1", "2"},"2"}, {{"1", "3"},"2"}]
+            },
+            {
+                306,
+                enabled,
+                [{"cluster2", {allow, [{user_metadata,{<<"filter">>, <<4:32>>}}]}, {block,[]}}],
+                []
+            },
+            {
+                308,
+                enabled,
+                [{"cluster2", {allow, [{user_metadata,{<<"other">>, <<2:32>>}}]}, {block,[]}}],
                 []
             }
         ],
