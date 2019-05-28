@@ -15,7 +15,7 @@ confirm() ->
     %% allow is changed to {allow, ['*']}
     %% block is changed to {block, Allowed}
     %% expected is now the inverse of what was expected in the first test
-    DoubleTests1 = get_config(bucket) ++ get_config(metadata) ++ get_config(lastmod_age) ++ get_config(lastmod),
+    DoubleTests1 = get_config(bucket) ++ get_config(metadata) ++ get_config(user_metadata) ++ get_config(lastmod_age) ++ get_config(lastmod),
     DoubleTests2 = DoubleTests1 ++ lists:map(fun not_rule_2/1, DoubleTests1),
 
     Tests = {SingleTests, DoubleTests2},
@@ -265,7 +265,8 @@ make_value(BN, KN, TestNumber, {{realtime, SendToCluster3}, OFMode}) -> list_to_
 make_dict("1") -> dict:new();
 make_dict(N) ->
     MD_USERMETA = <<"X-Riak-Meta">>,
-    UserMetaData = [{<<"filter">>, <<N:32>>}],
+    NN = list_to_integer(N),
+    UserMetaData = [{<<"filter">>, <<NN:32>>}],
     dict:from_list([{filter, N}, {MD_USERMETA, UserMetaData}]).
 
 
@@ -732,31 +733,31 @@ get_config(user_metadata) ->
     Configs =
         [
             {
-                300,
+                600,
                 enabled,
                 [{"cluster2", {allow, [{user_metadata,{<<"filter">>}}]}, {block,[]}}],
                 [{"1","2"}, {"1","3"}, {"2","2"}, {"2","3"}, {"3","2"}, {"3","3"}, {{"1", "1"},"2"}, {{"1", "1"},"3"}, {{"1", "2"},"2"}, {{"1", "2"},"3"}, {{"1", "3"},"2"}, {{"1", "3"},"3"}]
             },
             {
-                302,
+                602,
                 enabled,
                 [{"cluster2", {allow, [{user_metadata,{<<"other">>}}]}, {block,[]}}],
                 []
             },
             {
-                304,
+                604,
                 enabled,
                 [{"cluster2", {allow, [{user_metadata,{<<"filter">>, <<2:32>>}}]}, {block,[]}}],
                 [{"1","2"},{"2","2"}, {"3","2"}, {{"1", "1"},"2"}, {{"1", "2"},"2"}, {{"1", "3"},"2"}]
             },
             {
-                306,
+                606,
                 enabled,
                 [{"cluster2", {allow, [{user_metadata,{<<"filter">>, <<4:32>>}}]}, {block,[]}}],
                 []
             },
             {
-                308,
+                608,
                 enabled,
                 [{"cluster2", {allow, [{user_metadata,{<<"other">>, <<2:32>>}}]}, {block,[]}}],
                 []
