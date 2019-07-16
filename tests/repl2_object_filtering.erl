@@ -159,7 +159,7 @@ realtime_test({0,_,Config, ExpectedList}, SendToCluster3, Mode, [Cluster1, Clust
     Expected3 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- all_bkeys()],
     ?assertEqual(true, check_objects("cluster1", Cluster1, Expected1, erlang:now(), 240)),
     ?assertEqual(true, check_objects("cluster2", Cluster2, Expected2, erlang:now(), 240)),
-    ?assertEqual(true, check_objects("cluster3", Cluster2, Expected3, erlang:now(), 240)),
+    ?assertEqual(true, check_objects("cluster3", Cluster3, Expected3, erlang:now(), 240)),
     cleanup([Cluster1, Cluster2, Cluster3], ["cluster1", "cluster2", "cluster3"]),
     pass;
 realtime_test({TestNumber, Status, Config, ExpectedList}, SendToCluster3, Mode, C=[Cluster1, Cluster2, Cluster3]) ->
