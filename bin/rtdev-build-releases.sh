@@ -17,13 +17,13 @@
 # that should work too.
 
 #: ${R15B01:=$HOME/erlang-R15B01}
-: ${R16B02:=$HOME/.erlang_releases/R16B02-basho10-O2}
+: ${R16B02:=$HOME/erl_rel/R16B03}
 
 # These are the default tags to use when building basho OTP releases.
 # Export different tags to get a different build. N.B. You will need to
 # remove the builds from kerl (e.g., kerl delete build $BUILDNAME) and
 # possibly remove the directories above.
-: ${R16_TAG:="OTP_R16B02_basho10"}
+: ${R16_TAG:="OTP_R16B03"}
 #: ${R15_TAG:="basho_OTP_R15B01p"}
 
 # By default the Open Source version of Riak will be used, but for internal
@@ -195,5 +195,5 @@ build()
 # build "riak-2.2.4" $R16B02 2.2.4
 
 # build "riak-2.2.7d" $R16B02 2.2.7d
- build "riak-2.2.8" $R16B02 2.2.8
+ build "riak-2.2.8-split_backend" $R16B02 2.2.8-split_backend
 echo
