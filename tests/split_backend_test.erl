@@ -21,11 +21,11 @@ confirm() ->
 	pass.
 
 test(1) ->
+	Backends = ["bucket-1", "bucket-2"],
 	[C1] = _C = make_clusters_helper(),
 %%	connect_clusters({hd(C1),"cluster1"}, {hd(C2), "cluster2"}),
 
 	_BK = all_bkeys(),
-	lager:info("Cluster of nodes: ~p~n", [C1]),
 
 %%	Ring = rt:get_ring(hd(C1)),
 %%	lager:info("Ring: ~p~n", [Ring]),
@@ -33,15 +33,31 @@ test(1) ->
 %%	Owners = riak_core_ring:all_owners(Ring),
 %%	lager:info("Partitions length: ~p~n", [length(Owners)]),
 
-	BitcaskFiles = list_bitcask_files(C1),
+	put_all_objects(C1, 0),
+
+	BitcaskFiles = list_bitcask_files(C1, Backends),
 lager:info("Bitcask files: ~p~n", [BitcaskFiles]),
-	{Node, File} = hd(BitcaskFiles),
-	{BFile, Opt} = lists:nth(2, File),
-	Ref = rpc:call(Node, bitcask, open, [BFile, Opt]),
-	Output = rpc:call(Node, bitcask, list_keys, [Ref]),
+	{_Node, Dirs} = hd(BitcaskFiles),
+	{File, [_]} = hd(Dirs),
+	lager:info("File requesting to open: ~p~n", [File]),
+%%	Ref = rpc:call(Node, bitcask, open, [File, []]),
+	Ref = bitcask:open(File, []),
+	lager:info("Ref for opening bitcask: ~p~n", [Ref]),
+%%	Output = rpc:call(Node, bitcask, list_keys, [Ref]),
+	Output = bitcask:list_keys(Ref),
 	lager:info("Output of list keysL: ~p~n", [Output]),
 
-	put_all_objects(C1, 0),
+	Responses = [rpc:call(X, riak_core_vnode_manager, all_vnodes, [riak_kv_vnode]) || X <- C1],
+%%	lager:info("Kv_vnodes pids: ~p~n", [Responses]),
+	CoreVnodeStates = [sys:get_state(Pid) || Response <- Responses, {_, _Idx, Pid} <- Response],
+	lager:info("Check state: ~p~n", [CoreVnodeStates]),
+	KVVnodeStates = [element(4, N) || {active, N} <- CoreVnodeStates],
+	BackendStates = [element(5, N) || N <- KVVnodeStates],
+	lager:info("ModStates: ~p~n", [KVVnodeStates]),
+	lager:info("ModStates: ~p~n", [BackendStates]),
+
+timer:sleep(1000000),
+
 	cleanup([C1], ["cluster1"]),
 %%	Test1 = {
 %%		0,
@@ -78,10 +94,19 @@ make_clusters_helper() ->
 			[
 
 				{storage_backend, riak_kv_split_backend},
-				{split_backend_default, bucket_1},
+				{split_backend_default, <<"bucket-1">>},
 				{split_backend, [
-					{bucket_1, riak_kv_bitcask_backend, []}
+					{<<"bucket-1">>, riak_kv_bitcask_backend, [
+						{data_root, "./data/bitcask/bucket-1/"}
+					]}
+%%					{<<"bucket-2">>, riak_kv_bitcask_backend, [
+%%						{data_root, "./data/bitcask/bucket-2/"}
+%%					]}
 				]}
+			]},
+		{bitcask,
+			[
+				{merge_window, never}
 			]}
 	],
 	Nodes = rt:deploy_nodes(8, Conf, [riak_kv, riak_repl]),
@@ -212,19 +237,24 @@ print_objects_helper([{Bucket, Key}|Rest]) ->
 	lager:info("~p, ~p ~n", [Bucket, Key]),
 	print_objects_helper(Rest).
 
-list_bitcask_files(Nodes) ->
-	[{Node, list_node_bitcask_files(Node)} || Node <- Nodes].
+list_bitcask_files(Nodes, Backends) ->
+	[{Node, list_node_bitcask_files(Node, Backends)} || Node <- Nodes].
 
-list_node_bitcask_files(Node) ->
+list_node_bitcask_files(Node, Backends) ->
 	% Gather partitions owned, list *.bitcask.data on each.
 	Partitions = rt:partitions_for_node(Node),
+	lager:info("Node: ~p, Partitions: ~p~n", [Node, Partitions]),
 	{ok, DataDir} = rt:rpc_get_env(Node, [{bitcask, data_root}]),
-	[begin
+	{ok, RootDir} = rpc:call(Node, file, get_cwd, []),
+	FullDir = filename:join(RootDir, DataDir),
+	Files = [begin
+		 BucketDir = filename:join(FullDir, Backend),
 		 IdxStr = integer_to_list(Idx),
-		 IdxDir = filename:join(DataDir, IdxStr),
+		 IdxDir = filename:join(BucketDir, IdxStr),
 		 BitcaskPattern = filename:join([IdxDir, "*.bitcask.data"]),
 		 Paths = rpc:call(Node, filelib, wildcard, [BitcaskPattern]),
 		 ?assert(is_list(Paths)),
 		 Files = [filename:basename(Path) || Path <- Paths],
 		 {IdxDir, Files}
-	 end || Idx <- Partitions].
+	 end || Backend <- Backends, Idx <- Partitions],
+	[{IdxDir, Paths} || {IdxDir, Paths} <- Files, Paths =/= []].
