@@ -18,69 +18,25 @@
 
 confirm() ->
 	[C1] = _C = make_clusters_helper(),
-	[?assertEqual(pass, test(N, C1)) || N <- lists:seq(3, 3)],
+	[?assertEqual(pass, test(N, C1)) || N <- lists:seq(1, 1)],
 	destroy_clusters(C1),
 	pass.
 
+%% Checks that only the default split is created and no others.
 test(1, C1) ->
 	lager:info("Starting test(1)"),
 	Backends = [<<"bucket-1">>],
 
-%%	connect_clusters({hd(C1),"cluster1"}, {hd(C2), "cluster2"}),
+	{CoreVnodeStates, BackendLists, UBackends} = fetch_backend_data(C1),
 
-	_BK = all_bkeys(),
-
-%%	Ring = rt:get_ring(hd(C1)),
-%%	lager:info("Ring: ~p~n", [Ring]),
-
-%%	Owners = riak_core_ring:all_owners(Ring),
-%%	lager:info("Partitions length: ~p~n", [length(Owners)]),
-
-	put_all_objects(C1, 0),
-
-%%	BitcaskFiles = list_bitcask_files(C1, Backends),
-%%lager:info("Bitcask files: ~p~n", [BitcaskFiles]),
-%%	{_Node, Dirs} = hd(BitcaskFiles),
-%%	{File, [_]} = hd(Dirs),
-%%	lager:info("File requesting to open: ~p~n", [File]),
-%%%%	Ref = rpc:call(Node, bitcask, open, [File, []]),
-%%	Ref = bitcask:open(File, []),
-%%	lager:info("Ref for opening bitcask: ~p~n", [Ref]),
-%%%%	Output = rpc:call(Node, bitcask, list_keys, [Ref]),
-%%	Output = bitcask:list_keys(Ref),
-%%	lager:info("Output of list keysL: ~p~n", [Output]),
-
-	Responses = [rpc:call(X, riak_core_vnode_manager, all_vnodes, [riak_kv_vnode]) || X <- C1],
-	CoreVnodeStates = [sys:get_state(Pid) || Response <- Responses, {_, _Idx, Pid} <- Response],
-	lager:info("Check state: ~p~n", [CoreVnodeStates]),
-	BackendStates = [begin
-		 KvVnodeState = element(4, N),
-		 BackendState = element(5, KvVnodeState),
-		 element(2, BackendState)
-	 end || {active, N} <- CoreVnodeStates],
-	lager:info("ModStates: ~p~n", [BackendStates]),
-	BackendNames = [X || N <- BackendStates, {X, _, _} <- N],
-	UBackends = lists:usort(BackendNames),
-	lager:info("BackendNames: ~p~n", [BackendNames]),
-	lager:info("Lengths: Partitions: ~p, Backends: ~p~n", [length(CoreVnodeStates), length(BackendNames)]),
-
-	?assertEqual(length(CoreVnodeStates), length(BackendNames)), %% Checks there is only one backend per partition
+	?assertEqual(length(CoreVnodeStates), length(BackendLists)), %% Checks there is only one backend per partition
 	?assertEqual(UBackends, Backends),
 
 	cleanup([C1], ["cluster1"]),
-%%	Test1 = {
-%%		0,
-%%		disabled,
-%%		[{"cluster2", {allow, []}, {block,[]}}],
-%%		all_bkeys()
-%%	},
-%%
-%%	start_realtime(C1, "cluster2"),
-%%	realtime_test(Test1, false, "repl", C),
-%%	stop_realtime(C1, "cluster2"),
 
 	pass;
 
+%% Tests that when adding a new split backend it is started across each partition.
 test(2, C1) ->
 	lager:info("Starting test(2)"),
 	Backends = [<<"bucket-1">>],
@@ -103,27 +59,51 @@ test(2, C1) ->
 
 	lager:info("metadata: ~p~n", [Splits]),
 
-	pass;
-
-test(3, C1) ->
-	_Backends = [<<"bucket-1">>],
-
-	rpc:call(hd(C1), riak_core_metadata, put, [{split_backend, all}, use_default_backend, false]),
-	DefFlag = rpc:call(hd(C1), riak_core_metadata, get, [{split_backend, all}, use_default_backend]),
-	?assertEqual(false, DefFlag),
-
-	Expected1 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- all_bkeys()],
-	put_all_objects(C1, 3),
-	?assertEqual(false, check_objects("cluster1", C1, Expected1, erlang:now(), 5000)),
-
-	rpc:call(hd(C1), riak_core_metadata, put, [{split_backend, all}, use_default_backend, true]),
-	put_all_objects(C1, 3),
-	?assertEqual(true, check_objects("cluster1", C1, Expected1, erlang:now(), 5000)),
-
 	cleanup([C1], ["cluster1"]),
 
-	pass.
+	pass;
 
+%% Same as above but we kill a node then start back up to ensure the split is picked up upon starting the node up.
+test(3, C1) ->
+	lager:info("Starting test(2)"),
+	Backends = [<<"bucket-1">>],
+	Expected = lists:flatten([Backends, <<"bucket-2">>]),
+
+	{CoreVnodeStates, BackendLists, UBackends} = fetch_backend_data(C1),
+
+	?assertEqual(64, length(CoreVnodeStates)), %% Checks there is only one backend per partition, total 64
+	?assertEqual(length(CoreVnodeStates), length(BackendLists)), %% Should be one backend per partition
+	?assertEqual(UBackends, Backends),
+
+	rt:stop_and_wait(hd(C1)),
+
+	rpc:call(lists:nth(2, C1), riak_kv_console, add_split_backend, [[bitcask, 'bucket-2']]),
+	timer:sleep(2000),
+	{NewCoreVnodeStates, NewBackendList, NewUBackends} = fetch_backend_data(C1),
+
+	lager:info("New corestate length: ~p BackendList length: ~p and UBackends: ~p~n", [length(NewCoreVnodeStates), length(NewBackendList), NewUBackends]),
+	lager:info("Orignal corestate length: ~p Original BackendList length: ~p", [length(CoreVnodeStates), length(BackendLists)]),
+	?assertEqual(56, length(NewCoreVnodeStates)), %% Node killed, should be 64 - 8 partitions
+	?assertEqual(2*length(NewCoreVnodeStates), length(NewBackendList)), %% Should be 2 backends per partition, 56 parts 112 backends
+	?assertEqual(NewUBackends, Expected),
+
+	rt:start_and_wait(hd(C1)),
+	rt:wait_for_service(hd(C1), [riak_kv]),
+	rt:wait_until_transfers_complete([hd(C1)]),
+
+	{NewCoreVnodeStates1, NewBackendList1, NewUBackends1} = fetch_backend_data(C1),
+	lager:info("New corestate length: ~p BackendList length: ~p and UBackends: ~p~n", [length(NewCoreVnodeStates1), length(NewBackendList1), NewUBackends1]),
+	?assertEqual(64, length(CoreVnodeStates)), %% Node brought back so should be back to 64 total partitions
+	?assertEqual(2*length(NewCoreVnodeStates1), length(NewBackendList1)), %% Should pick up new backend from MD, 64 parts 128 backends
+	?assertEqual(NewUBackends1, Expected),
+
+	Splits = rpc:call(hd(C1), riak_core_metadata, get, [{split_backend, bitcask}, splits]),
+
+	lager:info("metadata: ~p~n", [Splits]),
+
+	pass;
+
+%% Tests that puts are rejected when the default bucket flag is false, then sets to true and ensures puts are accepted.
 test(4, C1) ->
 	_Backends = [<<"bucket-1">>],
 
@@ -133,37 +113,41 @@ test(4, C1) ->
 
 	Expected1 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- all_bkeys()],
 	put_all_objects(C1, 3),
-	?assertEqual(false, check_objects("cluster1", C1, Expected1, erlang:now(), 5000)),
+	?assertEqual(false, check_objects("cluster1", C1, Expected1, erlang:now(), 240)),
+
+	rpc:call(hd(C1), riak_core_metadata, put, [{split_backend, all}, use_default_backend, true]),
+	put_all_objects(C1, 3),
+	?assertEqual(true, check_objects("cluster1", C1, Expected1, erlang:now(), 240)),
+
+	cleanup([C1], ["cluster1"]),
+
+	pass;
+
+%% Keeps default bucket flag set to false checks puts are rejected then adds the required backends and confirms puts are now accepted.
+test(5, C1) ->
+	_Backends = [<<"bucket-1">>],
+
+	rpc:call(hd(C1), riak_core_metadata, put, [{split_backend, all}, use_default_backend, false]),
+	DefFlag = rpc:call(hd(C1), riak_core_metadata, get, [{split_backend, all}, use_default_backend]),
+	?assertEqual(false, DefFlag),
+
+	Expected1 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- all_bkeys()],
+	put_all_objects(C1, 3),
+	?assertEqual(false, check_objects("cluster1", C1, Expected1, erlang:now(), 240)),
 
 	rpc:call(hd(C1), riak_kv_console, add_split_backend, [[bitcask, 'bucket-2']]),
 	rpc:call(hd(C1), riak_kv_console, add_split_backend, [[bitcask, 'bucket-3']]),
 
+	timer:sleep(2000),
+	Splits = rpc:call(hd(C1), riak_core_metadata, get, [{split_backend, bitcask}, splits]),
+	?assertEqual(['bucket-2', 'bucket-3'], lists:sort(Splits)),
+
 	put_all_objects(C1, 3),
-	?assertEqual(true, check_objects("cluster1", C1, Expected1, erlang:now(), 5000)),
+	?assertEqual(true, check_objects("cluster1", C1, Expected1, erlang:now(), 240)),
 
 	cleanup([C1], ["cluster1"]),
 
 	pass.
-
-fetch_backend_data(C1) ->
-	Responses = [rpc:call(X, riak_core_vnode_manager, all_vnodes, [riak_kv_vnode]) || X <- C1],
-	lager:info("All vnodes length: ~p~n", [length(Responses)]),
-	Num = [{length(X)} || X <- Responses],
-	lager:info("Length of partitions per node: ~p~n", [Num]),
-
-	CoreVnodeStates = [sys:get_state(Pid) || Response <- Responses, {_, _Idx, Pid} <- Response],
-	lager:info("Length of core vnode states: ~p~n", [length(CoreVnodeStates)]),
-	lager:info("CoreVnodeStates: ~p~n", [CoreVnodeStates]),
-	BackendStates = [begin
-						 KvVnodeState = element(4, N),
-						 BackendState = element(5, KvVnodeState),
-						 element(2, BackendState)
-					 end || {active, N} <- CoreVnodeStates],
-	lager:info("BackendStates: ~p, ~p~n", [length(BackendStates), BackendStates]),
-	BackendNames = [element(1, X) || N <- BackendStates, X <- N],
-	lager:info("Backends: ~p, ~p~n", [length(BackendNames), BackendNames]),
-	UBackends = lists:usort(BackendNames),
-	{CoreVnodeStates, BackendNames, UBackends}.
 
 %% =======================================================
 %% Setup
@@ -321,7 +305,7 @@ check_objects(ClusterName, Cluster, Expected, Time, Timeout) ->
 check_object_helper(ClusterName, Cluster, Expected, Time, Timeout) ->
 	Actual = get_all_objects(Cluster),
 	Result = lists:sort(Actual) == lists:sort(Expected),
-	case {Result, timer:now_diff(erlang:now(), Time) > Timeout*1000000} of
+	case {Result, timer:now_diff(erlang:now(), Time) > Timeout*100} of
 		{true, _} ->
 			print_objects(ClusterName, Actual),
 			true;
@@ -378,3 +362,25 @@ print_objects_helper([{Bucket, Key}|Rest]) ->
 %%		 {IdxDir, Files}
 %%	 end || Backend <- Backends, Idx <- Partitions],
 %%	[{IdxDir, Paths} || {IdxDir, Paths} <- Files, Paths =/= []].
+
+%^% Fetches the backend for each partition in a cluster and returns the vnode states
+% as well as a unique list of the current backends
+fetch_backend_data(C1) ->
+	Responses = [rpc:call(X, riak_core_vnode_manager, all_vnodes, [riak_kv_vnode]) || X <- C1],
+	lager:info("All vnodes length: ~p~n", [length(Responses)]),
+	Num = [{length(X)} || X <- Responses, X =/= {badrpc, nodedown}],
+	lager:info("Length of partitions per node: ~p~n", [Num]),
+
+	CoreVnodeStates = [sys:get_state(Pid) || Response <- Responses, Response =/= {badrpc, nodedown}, {_, _Idx, Pid} <- Response],
+	lager:info("Length of core vnode states: ~p~n", [length(CoreVnodeStates)]),
+	lager:info("CoreVnodeStates: ~p~n", [CoreVnodeStates]),
+	BackendStates = [begin
+						 KvVnodeState = element(4, N),
+						 BackendState = element(5, KvVnodeState),
+						 element(2, BackendState)
+					 end || {active, N} <- CoreVnodeStates],
+	lager:info("BackendStates: ~p, ~p~n", [length(BackendStates), BackendStates]),
+	BackendNames = [element(1, X) || N <- BackendStates, X <- N],
+	lager:info("Backends: ~p, ~p~n", [length(BackendNames), BackendNames]),
+	UBackends = lists:usort(BackendNames),
+	{CoreVnodeStates, BackendNames, UBackends}.
