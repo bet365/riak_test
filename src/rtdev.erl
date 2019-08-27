@@ -29,6 +29,12 @@
 -define(DEBUG_LOG_FILE(N),
         "dev" ++ integer_to_list(N) ++ "@127.0.0.1-riak-debug.tar.gz").
 
+get_riak_data_dir(DevNode) ->
+    lists:flatten(io_lib:format("~s/dev/~s/data/", [relpath(current), DevNode])).
+
+get_riak_test_data_dir() ->
+    lists:flatten(io_lib:format("~s", [rt_config:get(rtdev_test_data_path)])).
+
 get_deps() ->
     lists:flatten(io_lib:format("~s/dev/dev1/lib", [relpath(current)])).
 
