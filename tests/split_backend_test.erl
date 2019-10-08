@@ -17,9 +17,10 @@
 -define(ALL_KEY_NUMS,		["1", "2", "3"]).
 
 confirm() ->
-	[C1] = _C = make_clusters_helper(),
-	[?assertEqual(pass, test(N, C1)) || N <- lists:seq(1, 1)],
-	destroy_clusters(C1),
+	[_C1, C2] = C = make_clusters_helper(),
+%%	[?assertEqual(pass, test(N, C1)) || N <- lists:seq(6, 6)],
+	?assertEqual(pass, test(6, C2)),
+	destroy_clusters(C),
 	pass.
 
 %% Checks that only the default split is created and no others.
@@ -147,7 +148,65 @@ test(5, C1) ->
 
 	cleanup([C1], ["cluster1"]),
 
-	pass.
+	pass;
+
+test(6, C2) ->
+	NewConf = conf(),
+	lager:info("Cluster2 current bitcask config of first node: ~p~n", [rpc:call(hd(C2), application, get_all_env, [riak_kv])]),
+	lager:info("Cluster2 current split config of first node: ~p~n", [rpc:call(hd(C2), application, get_env, [riak_kv, split_backend])]),
+  rt:stop_and_wait(hd(C2)),
+	rt:update_app_config(hd(C2), NewConf),
+
+	lager:info("Cluster2 updated bitcask config of first node: ~p~n", [rpc:call(hd(C2), application, get_env, [riak_kv, bitcask])]),
+	lager:info("Cluster2 updated split config of first node: ~p~n", [rpc:call(hd(C2), application, get_env, [riak_kv, split_backend])]),
+	lager:info("Path of where we reside: ~p~n", [os:cmd("pwd")]),
+	rt:start_and_wait(hd(C2)),
+	rt:wait_for_service(hd(C2), [riak_kv]),
+	rt:wait_until_transfers_complete([hd(C2)]),
+
+	ok.
+
+conf() ->
+	[
+		{riak_repl,
+			[
+				%% turn off fullsync
+				{delete_mode, 1},
+				{fullsync_interval, 0},
+				{fullsync_strategy, keylist},
+				{fullsync_on_connect, false},
+				{fullsync_interval, disabled},
+				{max_fssource_node, 64},
+				{max_fssink_node, 64},
+				{max_fssource_cluster, 64},
+				{default_bucket_props, [{n_val, 3}, {allow_mult, false}]},
+				{override_capability,
+					[{default_bucket_props_hash, [{use, [consistent, datatype, n_val, allow_mult, last_write_wins]}]}]}
+			]},
+		{riak_kv,
+			[
+				{storage_backend, riak_kv_split_backend},
+				{split_backend_default, <<"bucket-1">>},
+				{split_backend, [
+					{<<"bucket-1">>, riak_kv_bitcask_backend, [
+						{data_root, "./data/bitcask/bucket-1/"}
+					]},
+					{<<"bucket-2">>, riak_kv_bitcask_backend, [
+						{data_root, "./data/bitcask/bucket-2/"}
+					]},
+					{<<"bucket-3">>, riak_kv_bitcask_backend, [
+						{data_root, "./data/bitcask/bucket-3/"}
+					]},
+					{<<"bucket-4">>, riak_kv_bitcask_backend, [
+						{data_root, "./data/bitcask/bucket-4/"}
+					]}
+				]}
+			]},
+		{bitcask,
+			[
+				{merge_window, never}
+			]}
+	].
 
 %% =======================================================
 %% Setup
@@ -199,41 +258,78 @@ make_clusters_helper() ->
 				{merge_window, never}
 			]}
 	],
-	Nodes = rt:deploy_nodes(8, Conf, [riak_kv, riak_repl]),
 
-	Cluster1 = lists:sublist(Nodes, 1, 8),
-%%	Cluster2 = lists:sublist(Nodes, 4, 3),
+	Conf2 = [
+		{riak_repl,
+			[
+				%% turn off fullsync
+				{delete_mode, 1},
+				{fullsync_interval, 0},
+				{fullsync_strategy, keylist},
+				{fullsync_on_connect, false},
+				{fullsync_interval, disabled},
+				{max_fssource_node, 64},
+				{max_fssink_node, 64},
+				{max_fssource_cluster, 64},
+				{default_bucket_props, [{n_val, 3}, {allow_mult, false}]},
+				{override_capability,
+					[{default_bucket_props_hash, [{use, [consistent, datatype, n_val, allow_mult, last_write_wins]}]}]}
+			]}
+%%		{riak_kv,
+%%			[
+%%				{storage_backend, riak_kv_bitcask_backend}
+%%			]}
+%%		{bitcask,
+%%			[
+%%				{merge_window, never}
+%%			]}
+	],
+	NodeConf = [{current, Conf} || _ <- lists:seq(1,4)],
+	NodeConf2 = [{current, Conf2} || _ <- lists:seq(5,8)],
+	lager:info("Conf1: ~p~n", [NodeConf]),
+	lager:info("Conf2: ~p~n", [NodeConf2]),
+	AllConf = lists:flatten([NodeConf | NodeConf2]),
+	lager:info("AllConf: ~p~n", [AllConf]),
+	Nodes = rt:deploy_nodes(AllConf, [riak_kv, riak_repl]),		%% TODO Perhaps half the number of nodes to 4 for a single cluster
+	lager:info("Nodes: ~p~n", [Nodes]),
+%%	Nodes = rt:deploy_nodes(NodeConf2, [riak_kv, riak_repl]),
 
-%%	[rpc:call(N1, erlang, disconnect_node, [N2]) || N1 <- Cluster1, N2 <- Cluster2 ++ Cluster3],
+	Cluster1 = lists:sublist(Nodes, 1, 4),
+	Cluster2 = lists:sublist(Nodes, 5, 8),
+
+	[rpc:call(N1, erlang, disconnect_node, [N2]) || N1 <- Cluster1, N2 <- Cluster2],
 %%	[rpc:call(N1, erlang, disconnect_node, [N2]) || N1 <- Cluster2, N2 <- Cluster1 ++ Cluster3],
 %%	[rpc:call(N1, erlang, disconnect_node, [N2]) || N1 <- Cluster3, N2 <- Cluster1 ++ Cluster2],
 
 	lager:info("Build cluster 1"),
 	repl_util:make_cluster(Cluster1),
-%%	lager:info("Build cluster 2"),
-%%	repl_util:make_cluster(Cluster2),
+	lager:info("Build cluster 2"),
+	repl_util:make_cluster(Cluster2),
 %%	lager:info("Build cluster 3"),
 %%	repl_util:make_cluster(Cluster3),
 
 	lager:info("waiting for leader to converge on cluster 1"),
 	?assertEqual(ok, repl_util:wait_until_leader_converge(Cluster1)),
-%%	lager:info("waiting for leader to converge on cluster 2"),
-%%	?assertEqual(ok, repl_util:wait_until_leader_converge(Cluster2)),
+	lager:info("waiting for leader to converge on cluster 2"),
+	?assertEqual(ok, repl_util:wait_until_leader_converge(Cluster2)),
 %%	lager:info("waiting for leader to converge on cluster 2"),
 %%	?assertEqual(ok, repl_util:wait_until_leader_converge(Cluster3)),
 
 	repl_util:name_cluster(hd(Cluster1), "cluster1"),
 	rt:wait_until_ring_converged(Cluster1),
-%%	repl_util:name_cluster(hd(Cluster2), "cluster2"),
-%%	rt:wait_until_ring_converged(Cluster2),
+	repl_util:name_cluster(hd(Cluster2), "cluster2"),
+	rt:wait_until_ring_converged(Cluster2),
 %%	repl_util:name_cluster(hd(Cluster3), "cluster3"),
 %%	rt:wait_until_ring_converged(Cluster3),
 
+	lager:info("Cluster2 current bitcask config of first node: ~p~n", [rpc:call(hd(Cluster2), application, get_all_env, [riak_kv])]),
+	lager:info("Cluster1 current split config of first node: ~p~n", [rpc:call(hd(Cluster1), application, get_all_env, [riak_kv])]),
+
 	rt:wait_until_transfers_complete(Cluster1),
-%%	rt:wait_until_transfers_complete(Cluster2),
+	rt:wait_until_transfers_complete(Cluster2),
 %%	rt:wait_until_transfers_complete(Cluster3),
 
-	[Cluster1].
+	[Cluster1, Cluster2].
 
 destroy_clusters(Clusters) ->
 	Nodes = lists:flatten(Clusters),
