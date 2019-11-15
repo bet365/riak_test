@@ -195,5 +195,5 @@ build()
 # build "riak-2.2.4" $R16B02 2.2.4
 
 # build "riak-2.2.7d" $R16B02 2.2.7d
- build "riak-2.2.9" $R16B02 2.2.9
+ build "riak-2.2.11-test" $R16B02 2.2.11-test
 echo
