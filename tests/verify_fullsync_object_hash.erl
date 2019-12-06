@@ -5,46 +5,98 @@
 -export([confirm/0]).
 -include_lib("eunit/include/eunit.hrl").
 
+-record(diff_state, {fsm,
+    ref,
+    preflist,
+    count = 0,
+    replies = 0,
+    diff_hash = 0,
+    missing = 0,
+    need_vclocks = true,
+    errors = [],
+    filter_buckets = false,
+    shared_buckets = []}).
+
+
 
 confirm() ->
-    [{A1,A2}, {B1,B2}, {C1,C2}, {D1, D2}] = make_clusters(),
-
-    %% setup clusters with different object hash functions
+    [{A1,A2}, {B1,B2}, {C1,C2}, {D1,D2}] = make_clusters(),
 
     %% run tests
-    pass = run_test({A1, A2}, "A2"),
-    pass = run_test({B1, B2}, "B2"),
-    pass = run_test({C1, C2}, "C2"),
-    pass = run_test({D1, D2}, "D2").
+    io:format(" ---------- Test 1 ----------"),
+    pass = run_test({A1, 0}, {A2, 0}, "A2", 10000),
+    pass = run_test({B1, 0}, {B2, 1}, "B2", 10000),
+    pass = run_test({C1, 1}, {C2, 0}, "C2", 10000),
+    pass = run_test({D1, 1}, {D2, 1}, "D2", 0).
 
 
 %% ================================================================================================================== %%
 %%                                              Tests                                                                 %%
 %% ================================================================================================================== %%
 
-run_test({Node1, Node2}, Node2Name) ->
+run_test({Node1, V1}, {Node2, V2}, Node2Name, ExpectedDiff) ->
 
     %% Turn on realtime replication
     enable_realtime(Node1, Node2Name),
-    start_realtime(Node1, Node2Name)
+    start_realtime(Node1, Node2Name),
 
-    %% Place 10,000 keys
+    %% Place and Delete 50,000 keys
+    {ok, Client} = riak:client_connect(Node1),
+    io:format("Placing and Deleting 10,000 keys"),
+    lists:foreach(
+                    fun(X) ->
+                        Client:put(riak_object:new(<<"test-1">>, <<X:32>>, <<"value-1">>)),
+                        Client:delete(<<"test-1">>, <<X:32>>)
+                    end,
+        lists:seq(1,10000)),
 
-    %% Turn off realtime replication
+    %% set fullsync object hash version
+    rpc:call(Node1, application, set_env, [riak_repl, fullsync_object_hash_version, V1]),
+    rpc:call(Node2, application, set_env, [riak_repl, fullsync_object_hash_version, V2]),
 
-    %% Place 5,000 keys
+%%    %% set merges on on Node 2
+%%    rpc:call(Node2, application, set_env, [bitcask, merge_window, always], 10000),
+%%
+%%    %% wait for some merges to take place
+%%    io:format("Wait for merges"),
+%%    timer:sleep(45000),
+%%
+%%    %% stop the merges
+%%    rpc:call(Node2, application, set_env, [bitcask, merge_window, never], 10000),
 
     %% add intercept to capture diff state in an ets table
+    rt_intercept:add(Node1,
+        {riak_repl_fullsync_helper,
+            [
+                {{diff_keys, 3}, diff_keys_intercept}
+            ]}
+    ),
 
     %% turn on fullsync
+    start_fullsync(Node1, Node2Name),
 
     %% wait until fullsync completes
+    wait_until_fullsync_complete(Node1, Node2Name, 3),
+    timer:sleep(5000),
 
-    %% loop ets table with diff states (8 in total), sum all the missing and differences
-    %% should be 1000 missing, 5000 different
+    %% Get Difference Count
+    {ok, Keys} = Client:list_keys(<<"diffstate">>),
+    AllDiffState =
+        lists:foldl(
+            fun(Key, TotalDiffState = #diff_state{diff_hash = B1, missing = C1}) ->
+                {ok, Obj} = Client:get(<<"diffstate">>, Key),
+                DiffState = binary_to_term(riak_object:get_value(Obj)),
+                #diff_state{diff_hash = B2, missing = C2} = DiffState,
+                TotalDiffState#diff_state{diff_hash = B1+B2, missing = C1+C2}
+            end, #diff_state{diff_hash = 0, missing = 0}, Keys),
 
-    %% clear ets table
+    stop_realtime(Node1, Node2Name),
+    stop_fullsync(Node1, Node2Name),
 
+    io:format("DiffState: ~p", [AllDiffState]),
+
+    ?assertEqual(ExpectedDiff, AllDiffState#diff_state.diff_hash),
+    ?assertEqual(0, AllDiffState#diff_state.missing),
     pass.
 
 %% ================================================================================================================== %%
@@ -109,7 +161,7 @@ make_clusters_helper() ->
                 [
                     %% turn off fullsync
                     {delete_mode, 1},
-                    {fullsync_interval, 0},
+                    {fullsync_interval, 60},
                     {fullsync_strategy, keylist},
                     {fullsync_on_connect, false},
                     {fullsync_interval, disabled},
@@ -123,18 +175,25 @@ make_clusters_helper() ->
             },
             {riak_kv,
                 [
+                    {backend_reap_threshold, 86400},
+                    {override_capability, [{object_hash_version, [{use, legacy}]}]},
+                    {bitcask_merge_check_interval, 1000},
+                    {bitcask_merge_check_jitter, 0}
 
-                    {override_capability, [{object_hash_version, [{use, legacy}]}]}
-
+                ]
+            },
+            {bitcask,
+                [
+                    {merge_window, never},
+                    {max_file_size, 100000},
+                    {dead_bytes_threshold, 40000},
+                    {dead_bytes_merge_trigger, 25000}
                 ]
             }
         ],
     Nodes = rt:deploy_nodes(8, Conf, [riak_kv, riak_repl]),
-    lists:foreach(
-        fun(Node) ->
-            rt:wait_until_ring_converged(Node),
-            rt:wait_until_transfers_complete(Node)
-        end, Nodes),
+    rt:wait_until_ring_converged(Nodes),
+    rt:wait_until_transfers_complete(Nodes),
     Nodes.
 
 
@@ -148,40 +207,37 @@ connect_clusters({Node1, Name1}, {Node2, Name2}) ->
 
 enable_realtime(Node, C2Name) ->
     repl_util:enable_realtime(Node, C2Name),
-    rt:wait_until_ring_converged(Node).
+    rt:wait_until_ring_converged([Node]).
 
-disable_realtime(Cluster, C2Name) ->
-    repl_util:disable_realtime(hd(Cluster), C2Name),
-    rt:wait_until_ring_converged(Cluster).
+disable_realtime(Node, C2Name) ->
+    repl_util:disable_realtime(Node, C2Name),
+    rt:wait_until_ring_converged([Node]).
 
-start_realtime(Cluster, C2Name) ->
-    enable_realtime(Cluster, C2Name),
-    Node = hd(Cluster),
+start_realtime(Node, C2Name) ->
+    enable_realtime(Node, C2Name),
     lager:info("Starting realtime on: ~p", [Node]),
     rpc:call(Node, riak_repl_console, realtime, [["start", C2Name]]),
-    rt:wait_until_ring_converged(Cluster).
+    rt:wait_until_ring_converged([Node]).
 
-stop_realtime(Cluster, C2Name) ->
-    Node = hd(Cluster),
+stop_realtime(Node, C2Name) ->
     lager:info("Stopping realtime on: ~p", [Node]),
     rpc:call(Node, riak_repl_console, realtime, [["stop", C2Name]]),
-    disable_realtime(Cluster, C2Name),
-    rt:wait_until_ring_converged(Cluster).
+    disable_realtime(Node, C2Name),
+    rt:wait_until_ring_converged([Node]).
 
-start_fullsync(Cluster, C2Name) ->
-    Node = hd(Cluster),
+start_fullsync(Node, C2Name) ->
     lager:info("Starting fullsync on: ~p", [Node]),
     repl_util:enable_fullsync(Node, C2Name),
     rpc:call(Node, riak_repl_console, fullsync, [["start", C2Name]]).
 
 
 
-wait_until_fullsync_complete(Node, C2Name, Retries, Expected) ->
-    check_fullsync_completed(Node, C2Name, Retries, Expected, 50).
+wait_until_fullsync_complete(Node, C2Name, Retries) ->
+    check_fullsync_completed(Node, C2Name, Retries, 50).
 
-check_fullsync_completed(_, _, 0, _, _) ->
+check_fullsync_completed(_, _, 0, _) ->
     failed;
-check_fullsync_completed(Node, C2Name, Retries, Expected, Sleep) ->
+check_fullsync_completed(Node, C2Name, Retries, Sleep) ->
     Status0 = rpc:call(Node, riak_repl_console, status, [quiet]),
     [{C2Name, List}] = proplists:get_value(fullsync_coordinator, Status0, []),
     Count = proplists:get_value(fullsyncs_completed, List, 0),
@@ -198,7 +254,7 @@ check_fullsync_completed(Node, C2Name, Retries, Expected, Sleep) ->
             stop_fullsync([Node], C2Name),
             timer:sleep(2000),
             start_fullsync([Node], C2Name),
-            check_fullsync_completed(Node, C2Name, Retries-1, Expected, Sleep*2)
+            check_fullsync_completed(Node, C2Name, Retries-1, Sleep*2)
     end.
 
 
@@ -218,8 +274,7 @@ make_fullsync_wait_fun(Node, Count) ->
         end
     end.
 
-stop_fullsync(Cluster, C2Name) ->
-    Node = hd(Cluster),
+stop_fullsync(Node, C2Name) ->
     lager:info("Stopping fullsync on: ~p", [Node]),
     repl_util:disable_fullsync(Node, C2Name),
     repl_util:stop_fullsync(Node, C2Name).
