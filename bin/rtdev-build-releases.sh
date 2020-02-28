@@ -17,7 +17,7 @@
 # that should work too.
 
 #: ${R15B01:=$HOME/erlang-R15B01}
-: ${R16B02:=$HOME/.erlang_releases/R16B02-basho10-O2}
+: ${R16B02:=$HOME/erl_rel/R16B02-basho10}
 
 # These are the default tags to use when building basho OTP releases.
 # Export different tags to get a different build. N.B. You will need to
@@ -195,5 +195,6 @@ build()
 # build "riak-2.2.4" $R16B02 2.2.4
 
 # build "riak-2.2.7d" $R16B02 2.2.7d
- build "riak-2.2.11-test" $R16B02 2.2.11-test
+# build "riak-2.2.11" $R16B02 2.2.11
+ build "riak-2.2.12-aae" $R16B02 2.2.12-aae
 echo
