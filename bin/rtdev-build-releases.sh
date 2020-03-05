@@ -195,5 +195,5 @@ build()
 # build "riak-2.2.4" $R16B02 2.2.4
 
 # build "riak-2.2.7d" $R16B02 2.2.7d
- build "riak-2.2.8-split_backend" $R16B02 2.2.8-split_backend
+ build "riak-2.2.8-multi_bitcask_instances" $R16B02 2.2.8-multi_bitcask_instances
 echo

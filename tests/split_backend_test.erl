@@ -16,6 +16,10 @@
 -define(ALL_BUCKETS_NUMS, 	["1", "2", "3"]).
 -define(ALL_KEY_NUMS,		["1", "2", "3"]).
 
+
+
+
+%% TODO This module can be deleted as work has changed and become multi_bitcask_instances_test.erl
 confirm() ->
 	[_C1, C2] = C = make_clusters_helper(),
 %%	[?assertEqual(pass, test(N, C1)) || N <- lists:seq(6, 6)],
