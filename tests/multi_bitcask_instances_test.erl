@@ -19,7 +19,7 @@
 
 confirm() ->
 	[C1, _C2] = C = make_clusters_helper(),
-	[?assertEqual(pass, test(N, C1)) || N <- lists:seq(1,5)],
+	[?assertEqual(pass, test(N, C1)) || N <- lists:seq(6,6)],
 %%	?assertEqual(pass, test(6, C2)),
 	destroy_clusters(C),
 	pass.
@@ -237,7 +237,7 @@ test(5, C1) ->
 	%% Stop node
 	rt:stop_and_wait(hd(C1)),
 
-	%% Activate cluster split and check down node is not acticated so data should not be put
+	%% Activate cluster split and check down node is not activated so data should not be put
 	[rpc:call(Node, riak_kv_console, activate_split_backend_local, [second_split]) || Node <- C1],
 
 	%% Start node again
@@ -292,8 +292,96 @@ test(5, C1) ->
 		Backend =:= "second_split", BackendFiles =/= []],
 	?assertNotEqual([], SplitFiles),
 
-	cleanup([C1], ["cluster1"], ["second_split"]),
+	cleanup([C1], ["cluster1"], ["second_split"], Buckets2, Keys2),
+	pass;
+
+%% Test deactivating and reverse merging a backend
+test(6, C1) ->
+	Buckets2 	= ["4", "5", "6"],
+	Keys2 		= ["4", "5", "6"],
+	lager:info("Starting test 6"),
+	%% Start second backend
+	[rpc:call(Node, riak_kv_console, add_split_backend_local, [second_split]) || Node <- C1],
+	check_backends(["default", "second_split"], C1),	%% Confirm requested splits are created
+
+	{_BackendStates, _MDBackends} = fetch_backend_data(C1),
+
+%%	?assertEqual(64, length(MDBackends)),		%% Confirm new split exists in metadata for all partitions
+%%	?assertEqual(64, length(BackendStates)),	%% 4 Nodes in each cluster is 64 partitions per cluster. 256 without transfers running but this is unreliable as sometimes they dont start quick enough
+
+	Partitions = rt:partitions_for_node(hd(C1)),
+
+	Response0 = [rpc:call(hd(C1), riak_kv_bitcask_backend, fetch_metadata_backends, [P]) || P <- Partitions],
+	lager:info("Response from metadata fetches: ~p~n", [Response0]),
+
+%%	Expected0 = [{make_bucket(BN), make_key(KN)} || {BN, KN} <- all_bkeys()],
+	Expected1 = [{make_bucket(BN, "second_split"), make_key(KN)} || {BN, KN} <- all_bkeys()],
+	Expected2 = [{make_bucket(BN), make_key(KN, "second_split")} || {BN, KN} <- all_bkeys()],
+%%	put_all_objects(C1, 2),
+	put_all_objects(C1, 2, {bucket, "second_split"}),
+	put_all_objects(C1, 2, {key, "second_split"}),
+%%	?assertEqual(true, check_objects("cluster1", C1, Expected0, erlang:now(), 240)),
+	?assertEqual(true, check_objects("cluster1", C1, Expected1, {bucket, "second_split"}, erlang:now(), 240)),
+	?assertEqual(true, check_objects("cluster1", C1, Expected2, {key, "second_split"}, erlang:now(), 240)),
+
+	%% Check no data exists in split locations for downed node.
+	BitcaskData1 = list_bitcask_files(C1),
+	lager:info("BitcaskData files: ~p~n", [BitcaskData1]),
+	%% Check no data in split location for downed node
+	[?assertEqual([], BackendFiles) ||
+		{_Node, IdxFiles} <- BitcaskData1,
+		BackendData <- IdxFiles,
+		{Backend, BackendFiles} <- BackendData,
+		Backend =:= "second_split"],
+
+	[rpc:call(Node, riak_kv_console, activate_split_backend_local, [second_split]) || Node <- C1],
+
+	Expected3 = [{make_bucket(BN, "second_split"), make_key(KN)} || {BN, KN} <- all_bkeys(1, 6)],
+	Expected4 = [{make_bucket(BN), make_key(KN, "second_split")} || {BN, KN} <- all_bkeys(1, 6)],
+	put_all_objects(C1, 2, {bucket, "second_split"}, Buckets2, Keys2),
+	put_all_objects(C1, 2, {key, "second_split"}, Buckets2, Keys2),
+	?assertEqual(true, check_objects("cluster1", C1, Expected3, {bucket, "second_split"}, erlang:now(), 240, ?ALL_BUCKETS_NUMS ++ Buckets2, ?ALL_KEY_NUMS ++ Keys2)),
+	?assertEqual(true, check_objects("cluster1", C1, Expected4, {key, "second_split"}, erlang:now(), 240, ?ALL_BUCKETS_NUMS ++ Buckets2, ?ALL_KEY_NUMS ++ Keys2)),
+
+	[rpc:call(Node, riak_kv_console, special_merge_local, [second_split]) || Node <- C1],
+
+	Expected5 = [{make_bucket(BN, "second_split"), make_key(KN)} || {BN, KN} <- all_bkeys(1, 6)],
+	Expected6 = [{make_bucket(BN), make_key(KN, "second_split")} || {BN, KN} <- all_bkeys(1, 6)],
+	?assertEqual(true, check_objects("cluster1", C1, Expected5, {bucket, "second_split"}, erlang:now(), 240, ?ALL_BUCKETS_NUMS ++ Buckets2, ?ALL_KEY_NUMS ++ Keys2)),
+	?assertEqual(true, check_objects("cluster1", C1, Expected6, {key, "second_split"}, erlang:now(), 240, ?ALL_BUCKETS_NUMS ++ Buckets2, ?ALL_KEY_NUMS ++ Keys2)),
+
+	[rpc:call(Node, riak_kv_console, deactivate_split_backend_local, [second_split]) || Node <- C1],
+
+	put_all_objects(C1, 2, {bucket, "second_split"}, ["7"], ["7"]),
+	put_all_objects(C1, 2, {key, "second_split"}, ["7"], ["7"]),
+
+	Expected7 = [{make_bucket(BN, "second_split"), make_key(KN)} || {BN, KN} <- all_bkeys(1, 7)],
+	Expected8 = [{make_bucket(BN), make_key(KN, "second_split")} || {BN, KN} <- all_bkeys(1, 7)],
+	?assertEqual(true, check_objects("cluster1", C1, Expected7, {bucket, "second_split"}, erlang:now(), 240, ?ALL_BUCKETS_NUMS ++ Buckets2 ++ ["7"], ?ALL_KEY_NUMS ++ Keys2 ++["7"])),
+	?assertEqual(true, check_objects("cluster1", C1, Expected8, {key, "second_split"}, erlang:now(), 240, ?ALL_BUCKETS_NUMS ++ Buckets2 ++ ["7"], ?ALL_KEY_NUMS ++ Keys2 ++ ["7"])),
+
+	[rpc:call(Node, riak_kv_console, reverse_merge_local, [second_split]) || Node <- C1],
+
+	Expected7 = [{make_bucket(BN, "second_split"), make_key(KN)} || {BN, KN} <- all_bkeys(1, 7)],
+	Expected8 = [{make_bucket(BN), make_key(KN, "second_split")} || {BN, KN} <- all_bkeys(1, 7)],
+	?assertEqual(true, check_objects("cluster1", C1, Expected7, {bucket, "second_split"}, erlang:now(), 240, ?ALL_BUCKETS_NUMS ++ Buckets2 ++ ["7"], ?ALL_KEY_NUMS ++ Keys2 ++ ["7"])),
+	?assertEqual(true, check_objects("cluster1", C1, Expected8, {key, "second_split"}, erlang:now(), 240, ?ALL_BUCKETS_NUMS ++ Buckets2 ++ ["7"], ?ALL_KEY_NUMS ++ Keys2 ++ ["7"])),
+
+	BitcaskData2 = list_bitcask_files(C1),
+	lager:info("BitcaskData files: ~p~n", [BitcaskData1]),
+	%% Check no data in split location for downed node
+	[?assertEqual([], BackendFiles) ||
+		{_Node, IdxFiles} <- BitcaskData2,
+		BackendData <- IdxFiles,
+		{Backend, BackendFiles} <- BackendData,
+		Backend =:= "second_split"],
+
+	cleanup([C1], ["cluster1"], ["second_split"], Buckets2, Keys2),
 	pass.
+
+
+
+
 
 
 %% =============================================================================================================================================================================
@@ -361,11 +449,11 @@ list_node_bitcask_files(Node) ->
 	{ok, DataRoot} = rt:rpc_get_env(Node, [{bitcask, data_root}]),
 	{ok, RootDir} = rpc:call(Node, file, get_cwd, []),
 	FullDir = filename:join(RootDir, DataRoot),
-	lager:info("FullDir: ~p~n", [FullDir]),
+%%	lager:info("FullDir: ~p~n", [FullDir]),
 	Something = [begin
 		 IdxStr = integer_to_list(Idx),
 		 IdxDir = filename:join(FullDir, IdxStr),
-		 lager:info("File name attempting : ~p ~p~n", [FullDir, IdxStr]),
+%%		 lager:info("File name attempting : ~p ~p~n", [FullDir, IdxStr]),
 		 {ok, DataDirs} = rpc:call(Node, file, list_dir, [IdxDir]),
 		 Dirs = [X || X <- DataDirs, X =/= "version.txt"],
 		 BackendFiles = [begin
@@ -375,7 +463,7 @@ list_node_bitcask_files(Node) ->
 %%		 {IdxDir, Dirs}
 			 BackendFiles
 	 end || Idx <- Partitions],
-	lager:info("backend files: ~p~n", [Something]),
+%%	lager:info("backend files: ~p~n", [Something]),
 	Something.
 %%	[{IdxDir, Paths} || {IdxDir, Paths} <- Files, Paths =/= []].
 
@@ -526,7 +614,7 @@ make_clusters_helper() ->
 	lager:info("Cluster2 current bitcask config of first node: ~p~n", [rpc:call(hd(Cluster2), application, get_all_env, [riak_kv])]),
 	lager:info("Cluster1 current bitcask config of first node: ~p~n", [rpc:call(hd(Cluster1), application, get_all_env, [riak_kv])]),
 
-	rt:wait_until_transfers_complete(Cluster1),	%% TODO Need the transfers to complete when properly running
+%%	rt:wait_until_transfers_complete(Cluster1),	%% TODO Need the transfers to complete when properly running
 %%	rt:wait_until_transfers_complete(Cluster2),
 %%	rt:wait_until_transfers_complete(Cluster3),
 
@@ -611,8 +699,8 @@ check_objects(ClusterName, Cluster, Expected, Split, Time, Timeout, BN, KN) ->
 %% TODO make this quicker for []!
 check_object_helper(ClusterName, Cluster, Expected, Split, Time, Timeout, BN, KN) ->
 	Actual = get_all_objects(Cluster, Split, BN, KN),
-	lager:info("Actual objects: ~p~n", [Actual]),
-	lager:info("Expected objects: ~p~n", [Expected]),
+%%	lager:info("Actual objects: ~p~n", [Actual]),
+%%	lager:info("Expected objects: ~p~n", [Expected]),
 	Result = lists:sort(Actual) == lists:sort(Expected),
 	case {Result, timer:now_diff(erlang:now(), Time) > Timeout*100} of
 		{true, _} ->
@@ -628,12 +716,12 @@ check_object_helper(ClusterName, Cluster, Expected, Split, Time, Timeout, BN, KN
 get_all_objects(Cluster, Split, BN0, KN0) ->
 	Node = hd(Cluster),
 	{ok, C} = riak:client_connect(Node),
-	lager:info("Node trying to connect to: ~p, CLient: ~p~n", [Node, C]),
+%%	lager:info("Node trying to connect to: ~p, CLient: ~p~n", [Node, C]),
 	AllObjects = [get_single_object(C, BN, KN, Split) || BN <- BN0, KN <- KN0],
 	[Obj || Obj <- AllObjects, Obj /= notfound].
 
 get_single_object(C, BN, KN, Split0) ->
-	lager:info("BN: ~p and KN ~p and Split: ~p~n", [BN, KN, Split0]),
+%%	lager:info("BN: ~p and KN ~p and Split: ~p~n", [BN, KN, Split0]),
 	case Split0 of
 		undefined ->
 			do_get(C, make_bucket(BN), make_key(KN));
