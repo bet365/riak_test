@@ -15,6 +15,7 @@
 # directories. If using kerl or whatever, modify to use kerl's activate logic.
 # Or, alternatively, just substitute the paths to the kerl install paths as
 # that should work too.
+
 : ${R16B02:=$HOME/.erlang_releases/R16B02-basho10-O2}
 : ${R203:=$HOME/.erlang_releases/20.3}
 
@@ -28,7 +29,7 @@
 # By default the Open Source version of Riak will be used, but for internal
 # testing you can override this variable to use `riak_ee` instead
 : ${RT_USE_EE:=""}
-GITURL_RIAK="git://github.com/basho/riak"
+GITURL_RIAK="git://github.com/bet365/riak"
 GITURL_RIAK_EE="git@github.com:basho/riak_ee"
 GITDIR="riak-src"
 
@@ -62,10 +63,9 @@ kerl()
     RELEASE=$1
     BUILDNAME=$2
 
-    export CFLAGS="-g -O2"
-    export LDFLAGS="-g"
+    export CFLAGS="-O2"
     if [ -n "`uname -r | grep el6`" ]; then
-        export CFLAGS="-g -DOPENSSL_NO_EC=1"
+        export CFLAGS="-O2 -DOPENSSL_NO_EC=1"
     fi
     BUILDFLAGS="--disable-hipe --enable-smp-support --without-odbc"
     if [ $(uname -s) = "Darwin" ]; then
@@ -181,4 +181,5 @@ build()
 
 #build "riak-2.2.8" $R16B02 riak-2.2.8
 build "riak-3.0" $R203 develop-3.0-ns
+
 echo

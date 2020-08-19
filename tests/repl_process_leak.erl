@@ -39,6 +39,8 @@ confirm() ->
     lager:info("testing for leaks on flakey sink"),
     flakey_sink(SourceNode, SinkNode),
 
+    timer:sleep(2000),
+
     lager:info("testing for leaks on flakey source"),
     flakey_source(SourceNode, SinkNode),
 
@@ -106,37 +108,31 @@ send_source_tcp_errors(SourceNode, N, Acc) ->
         undefined ->
             timer:sleep(?SEND_ERROR_INTERVAL),
             send_source_tcp_errors(SourceNode, N, Acc);
-        Pid ->
-            lager:debug("Get the status"),
-            SysStatus = try sys:get_status(Pid) of
-                S -> S
-            catch
-                W:Y ->
-                    lager:info("Sys failed due to ~p:~p", [W,Y]),
-                    {status, Pid, undefined, [undefined, undefined, undefined, undefined, [undefined, undefined, {data, [{"State", {Pid}}]}]]}
-            end,
-            {status, Pid, _Module, [_PDict, _Status, _, _, Data]} = SysStatus,
-            [_Header, _Data1, Data2] = Data,
-            {data, [{"State", StateRec}]} = Data2,
-            [Helper | _] = lists:filter(fun(E) ->
-                is_pid(E)
-            end, tuple_to_list(StateRec)),
+        ConnMgrPid ->
+            Dict = rpc:call(SourceNode, riak_repl2_rtsource_conn_mgr, get_endpoints, [ConnMgrPid]),
+            [{_,RtSourcePid}] = dict:to_list(Dict),
+            HelperPid = rpc:call(SourceNode, riak_repl2_rtsource_conn, get_helper_pid, [RtSourcePid]),
+            lager:debug("N ~p    rtsource pid ~p", [N, RtSourcePid]),
+            lager:debug("N ~p    rtsource helper pid ~p", [N, HelperPid]),
+
             lager:debug("mon the hlepr"),
-            HelperMon = erlang:monitor(process, Helper),
+            HelperMon = erlang:monitor(process, HelperPid),
             lager:debug("Send the murder"),
-            Pid ! {tcp_error, <<>>, test},
-            Mon = erlang:monitor(process, Pid),
+            RtSourcePid ! {tcp_error, <<>>, test},
+            Mon = erlang:monitor(process, RtSourcePid),
+            rt:log_to_nodes([SourceNode], "sent tcp error to rtsource conn"),
             lager:debug("Wait for deaths"),
             receive
-                {'DOWN', Mon, process, Pid, _} -> ok
+                {'DOWN', Mon, process, RtSourcePid, _} -> ok
             end,
             receive
-                {'DOWN', HelperMon, process, Helper, _} ->
+                {'DOWN', HelperMon, process, HelperPid, _} ->
                     ok
                 after 10000 ->
                     throw("Helper didn't die")
             end,
             timer:sleep(?SEND_ERROR_INTERVAL),
+            timer:sleep(1000),
             Count = rpc:call(SourceNode, erlang, system_info, [process_count]),
             send_source_tcp_errors(SourceNode, N - 1, [Count | Acc])
     end.
