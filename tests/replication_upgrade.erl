@@ -38,7 +38,7 @@ confirm() ->
                     [[],[],[]], Nodes));
         "random" ->
             %% halfass randomization
-            lists:sort(fun(_, _) -> random:uniform(100) < 50 end, Nodes);
+            lists:sort(fun(_, _) -> rand:uniform(100) < 50 end, Nodes);
         Other ->
             lager:error("Invalid upgrade ordering ~p", [Other]),
             erlang:exit()
@@ -66,7 +66,7 @@ confirm() ->
     ok = lists:foreach(fun(Node) ->
                                lager:info("Upgrade node: ~p", [Node]),
                                rt:log_to_nodes(Nodes, "Upgrade node: ~p", [Node]),
-                               rt:upgrade(Node, current),
+                               rt:upgrade(Node, current, fun replication2_upgrade:remove_jmx_from_conf/1),
                                rt:wait_until_pingable(Node),
                                rt:wait_for_service(Node, [riak_kv, riak_pipe, riak_repl]),
                                [rt:wait_until_ring_converged(N) || N <- [ANodes, BNodes]],

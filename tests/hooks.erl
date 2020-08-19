@@ -22,7 +22,7 @@
 %% Pre/post commit hooks for testing
 %%
 -module(hooks).
--compile([export_all]).
+-compile([export_all, nowarn_export_all]).
 
 precommit_nop(Obj) ->
     Obj.
@@ -53,10 +53,12 @@ set_precommit(Bucket, Hook) when is_atom(Hook) ->
 set_precommit(Bucket, Hook) when is_list(Hook) ->
     set_precommit(Bucket, list_to_binary(Hook));
 set_precommit(Bucket, Hook) ->
-    {ok,C} = riak:local_client(),
-    C:set_bucket(Bucket,
-                 [{precommit, [{struct,[{<<"mod">>,<<"hooks">>},
-                                        {<<"fun">>,Hook}]}]}]).
+    {ok, C} = riak:local_client(),
+    riak_client:set_bucket(Bucket,
+                            [{precommit,
+                                [{struct,[{<<"mod">>,<<"hooks">>},
+                                {<<"fun">>,Hook}]}]}],
+                            C).
 set_hooks() ->
     set_precommit(),
     set_postcommit().
@@ -69,7 +71,11 @@ set_precommit() ->
 
 set_postcommit() ->
     {ok, C} = riak:local_client(),
-    C:set_bucket(<<"postcommit">>,[{postcommit, [{struct,[{<<"mod">>,<<"hooks">>},{<<"fun">>, <<"postcommit_msg">>}]}]}]).
+    riak_client:set_bucket(<<"postcommit">>,
+                            [{postcommit,
+                                [{struct,[{<<"mod">>,<<"hooks">>},
+                                {<<"fun">>, <<"postcommit_msg">>}]}]}],
+                            C).
 
 postcommit_msg(Obj) ->
     Bucket = riak_object:bucket(Obj),

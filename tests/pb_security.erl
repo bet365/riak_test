@@ -4,20 +4,19 @@
 -export([confirm/0]).
 
 -export([map_object_value/3, reduce_set_union/2, mapred_modfun_input/3]).
+-export([setup_pb_certificates/1]).
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("riakc/include/riakc.hrl").
 
 -define(assertDenied(Op), ?assertMatch({error, <<"Permission",_/binary>>}, Op)).
 
-confirm() ->
+setup_pb_certificates(CertDir) ->
     application:start(crypto),
     application:start(asn1),
     application:start(public_key),
     application:start(ssl),
     application:start(inets),
-
-    CertDir = rt_config:get(rt_scratch_dir) ++ "/pb_security_certs",
 
     %% make a bunch of crypto keys
     make_certs:rootCA(CertDir, "rootCA"),
@@ -37,9 +36,12 @@ confirm() ->
     {ok, Bin} = file:read_file(filename:join(CertDir, "site1.basho.com/cert.pem")),
     {ok, FD} = file:open(filename:join(CertDir, "site7.basho.com/cacerts.pem"), [append]),
     file:write(FD, ["\n", Bin]),
-    file:close(FD),
-    make_certs:gencrl(CertDir, "site1.basho.com"),
+    file:close(FD).
 
+confirm() ->
+    CertDir = rt_config:get(rt_scratch_dir) ++ "/pb_security_certs",
+    setup_pb_certificates(CertDir),
+    make_certs:gencrl(CertDir, "site1.basho.com"),
     %% start a HTTP server to serve the CRLs
     %%
     %% NB: we use the 'stand_alone' option to link the server to the
@@ -60,10 +62,7 @@ confirm() ->
                     {cacertfile, filename:join([CertDir, "site3.basho.com/cacerts.pem"])}
                     ]},
                 {job_accept_class, undefined}
-                ]},
-            {riak_search, [
-                           {enabled, true}
-                          ]}
+                ]}
            ],
 
     MD = riak_test_runner:metadata(),
@@ -79,6 +78,7 @@ confirm() ->
     ok = rpc:call(Node, riak_core_console, security_enable, [[]]),
 
     [_, {pb, {"127.0.0.1", Port}}] = rt:connection_info(Node),
+    lager:info("Setup security for pb on port ~w", [Port]),
 
     lager:info("Checking non-SSL results in error"),
     %% can connect without credentials, but not do anything
@@ -95,15 +95,18 @@ confirm() ->
 
     lager:info("Checking SSL requires peer cert validation"),
     %% can't connect without specifying cacert to validate the server
-    ?assertMatch({error, _}, riakc_pb_socket:start("127.0.0.1", Port,
-                                                   [{credentials, UsernameBin,
-                                                     "pass"}])),
+    ?assertMatch({error, _},
+                    riakc_pb_socket:start("127.0.0.1",
+                                            Port,
+                                            [{credentials, UsernameBin, "pass"}])),
 
     lager:info("Checking that authentication is required"),
     %% invalid credentials should be invalid
-    ?assertEqual({error, {tcp, <<"Authentication failed">>}}, riakc_pb_socket:start("127.0.0.1", Port,
-                                      [{credentials, UsernameBin,
-                                        "pass"}, {cacertfile,
+    ?assertMatch({error, {tcp, <<"Authentication failed">>}},
+                    riakc_pb_socket:start("127.0.0.1",
+                                            Port,
+                                            [{credentials, UsernameBin, "pass"},
+                                                {cacertfile,
                                                   filename:join([CertDir, "rootCA/cert.pem"])}])),
 
     lager:info("Creating user"),
@@ -379,24 +382,24 @@ confirm() ->
     ?assertEqual([<<"counters">>, <<"hello">>], lists:sort(BList)),
 
     %% still need mapreduce permission
-    lager:info("Checking that full-bucket mapred is disallowed"),
-    ?assertMatch({error, <<"Permission", _/binary>>},
-                 riakc_pb_socket:mapred_bucket(PB, <<"hello">>,
-                                       [{map, {jsfun, <<"Riak.mapValuesJson">>}, undefined, false},
-                                        {reduce, {jsfun,
-                                                  <<"Riak.reduceSum">>},
-                                         undefined, true}])),
+%%    lager:info("Checking that full-bucket mapred is disallowed"),
+%%    ?assertMatch({error, <<"Permission", _/binary>>},
+%%                 riakc_pb_socket:mapred_bucket(PB, <<"hello">>,
+%%                                       [{map, {jsfun, <<"Riak.mapValuesJson">>}, undefined, false},
+%%                                        {reduce, {jsfun,
+%%                                                  <<"Riak.reduceSum">>},
+%%                                         undefined, true}])),
 
     lager:info("Granting mapreduce, checking that job succeeds"),
     ok = rpc:call(Node, riak_core_console, grant, [["riak_kv.mapreduce", "on",
                                                     "default", "to", Username]]),
 
-    ?assertEqual({ok, [{1, [1]}]},
-                 riakc_pb_socket:mapred_bucket(PB, <<"hello">>,
-                                       [{map, {jsfun, <<"Riak.mapValuesJson">>}, undefined, false},
-                                        {reduce, {jsfun,
-                                                  <<"Riak.reduceSum">>},
-                                         undefined, true}])),
+%%    ?assertEqual({ok, [{1, [1]}]},
+%%                 riakc_pb_socket:mapred_bucket(PB, <<"hello">>,
+%%                                       [{map, {jsfun, <<"Riak.mapValuesJson">>}, undefined, false},
+%%                                        {reduce, {jsfun,
+%%                                                  <<"Riak.reduceSum">>},
+%%                                         undefined, true}])),
 
     lager:info("checking mapreduce with a whitelisted modfun works"),
     ?assertEqual({ok, [{1, [<<"1">>]}]},
@@ -485,12 +488,12 @@ confirm() ->
     ok = rpc:call(Node, riak_core_console, revoke, [["riak_kv.list_keys", "on",
                                                     "default", "hello", "from", Username]]),
 
-    ?assertMatch({error, <<"Permission", _/binary>>},
-                 riakc_pb_socket:mapred_bucket(PB, <<"hello">>,
-                                       [{map, {jsfun, <<"Riak.mapValuesJson">>}, undefined, false},
-                                        {reduce, {jsfun,
-                                                  <<"Riak.reduceSum">>},
-                                         undefined, true}])),
+%%    ?assertMatch({error, <<"Permission", _/binary>>},
+%%                 riakc_pb_socket:mapred_bucket(PB, <<"hello">>,
+%%                                       [{map, {jsfun, <<"Riak.mapValuesJson">>}, undefined, false},
+%%                                        {reduce, {jsfun,
+%%                                                  <<"Riak.reduceSum">>},
+%%                                         undefined, true}])),
 
     case HaveIndexes of
         false -> ok;
@@ -755,10 +758,6 @@ group_test(Node, Port, CertDir) ->
     ?assertMatch({error, notfound}, (riakc_pb_socket:get(PB, {<<"mytype2">>,
                                                               <<"hello">>},
                                                           <<"world">>))),
-
-    lager:info("riak search should not be running with security enabled"),
-    ?assertMatch({error, <<"Riak Search 1.0 is deprecated", _/binary>>},
-                           riakc_pb_socket:search(PB, <<"index">>, <<"foo:bar">>)),
 
     riakc_pb_socket:stop(PB),
     pass.

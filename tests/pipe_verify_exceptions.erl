@@ -27,6 +27,11 @@
 
 -module(pipe_verify_exceptions).
 
+-compile({nowarn_deprecated_function, 
+            [{gen_fsm, send_event, 2},
+                {gen_fsm, sync_send_event, 2},
+                {gen_fsm, sync_send_all_state_event, 2}]}).
+
 -export([
          %% riak_test's entry
          confirm/0
@@ -138,7 +143,7 @@ verify_tail_worker_crash([RN|_]) ->
     %% first worker decrements & passes on 99
     %% second worker decrements & passes on 98
     ?assertMatch([{_, 98}], Res),
-    
+
     %% second input is 1
     %% first worker decrements & passes on 0
     %% second worker decrements & explodes
@@ -413,7 +418,7 @@ verify_worker_limit_multiple([RN|_]) ->
 
 verify_under_worker_limit_one([RN|_]) ->
     lager:info("Verify that many workers + many fittings still under limit"),
-    
+
     %% 20 * Ring size > worker limit, if indeed the worker
     %% limit were enforced per node instead of per vnode.
     PipeLen = 20,
@@ -463,7 +468,7 @@ verify_queue_limit(RN, Retries) when Retries > 0 ->
     Full = length(rt_pipe:extract_queue_full(Trace)),
     NoLongerFull = length(rt_pipe:extract_unblocking(Trace)),
     ?assertEqual(Full, NoLongerFull),
-    
+
     case Full of
         [] ->
             lager:info("Queues were never full; Retries left: ~b",

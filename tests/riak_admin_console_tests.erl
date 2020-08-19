@@ -22,11 +22,11 @@
 
 -export([confirm/0]).
 
-%% This test passes params to the riak-admin shell script on to intercepts
+%% This test passes params to the riak admin shell script on to intercepts
 %% that either return ?PASS or ?FAIL (which print out "pass" or "fail" to
 %% the console). If an unexpected input is received in Erlang, ?FAIL is
 %% returned. This test should (will?) make sure we don't implement
-%% any unportable shell code. For example, `riak-repl cascades foo`
+%% any unportable shell code. For example, `riak repl cascades foo`
 %% didn't work on Ubuntu due to an invalid call to shift. Since this test
 %% will be run on giddyup and hence many platforms, we should be able
 %% to catch these types of bugs earlier.
@@ -41,7 +41,7 @@
 %%   js-reload
 %%   reip
 
-%% riak-admin cluster
+%% riak admin cluster
 cluster_tests(Node) ->
     check_admin_cmd(Node, "cluster join dev99@127.0.0.1"),
     check_admin_cmd(Node, "cluster leave"),
@@ -55,7 +55,7 @@ cluster_tests(Node) ->
     check_admin_cmd(Node, "cluster commit"),
     check_admin_cmd(Node, "cluster clear").
 
-%% riak-admin bucket_type
+%% riak admin bucket_type
 bucket_tests(Node) ->
     check_admin_cmd(Node, "bucket-type status foo"),
     check_admin_cmd(Node, "bucket-type activate foo"),
@@ -64,7 +64,7 @@ bucket_tests(Node) ->
     check_admin_cmd(Node, "bucket-type list").
 
 
-%% riak-admin security
+%% riak admin security
 security_tests(Node) ->
     check_admin_cmd_2x(Node, "security add-user foo"),
     check_admin_cmd_2x(Node, "security add-user foo x1=y1 x2=y2"),
@@ -102,7 +102,7 @@ security_tests(Node) ->
     check_admin_cmd(Node, "security print-grants foo"),
     check_admin_cmd(Node, "security ciphers foo").
 
-%% "top level" riak-admin COMMANDS
+%% "top level" riak admin COMMANDS
 riak_admin_tests(Node) ->
     check_admin_cmd(Node, "join -f dev99@127.0.0.1"),
     check_admin_cmd(Node, "leave -f"),
@@ -148,7 +148,7 @@ riak_admin_tests(Node) ->
     check_admin_cmd(Node, "downgrade_objects true 1"),
     check_admin_cmd(Node, "downgrade_objects true"),
     check_admin_cmd(Node, "downgrade_objects true 1"),
-    check_admin_cmd(Node, "js-reload foo bar baz"),
+%%    check_admin_cmd(Node, "js-reload foo bar baz"),
     ok.
 
 confirm() ->
@@ -216,11 +216,11 @@ confirm() ->
                         {{bucket_type_list,1}, verify_console_bucket_type_list}
                       ]}),
 
-    rt_intercept:add(Node,
-                     {riak_kv_js_manager,
-                      [
-                        {{reload,1}, verify_console_reload}
-                      ]}),
+%%    rt_intercept:add(Node,
+%%                     {riak_kv_js_manager,
+%%                      [
+%%                        {{reload,1}, verify_console_reload}
+%%                      ]}),
 
     rt_intercept:wait_until_loaded(Node),
 
@@ -232,15 +232,15 @@ confirm() ->
 
 check_admin_cmd(Node, Cmd) ->
     S = string:tokens(Cmd, " "),
-    lager:info("Testing riak-admin ~s on ~s", [Cmd, Node]),
+    lager:info("Testing riak admin ~s on ~s", [Cmd, Node]),
     {ok, Out} = rt:admin(Node, S),
     ?assertEqual("pass", Out).
 
 %% Recently we've started calling riak_core_console twice from the
-%% same riak-admin invocation; this will result in "passpass" as a
+%% same riak admin invocation; this will result in "passpass" as a
 %% return instead of a simple "pass"
 check_admin_cmd_2x(Node, Cmd) ->
     S = string:tokens(Cmd, " "),
-    lager:info("Testing riak-admin ~s on ~s", [Cmd, Node]),
+    lager:info("Testing riak admin ~s on ~s", [Cmd, Node]),
     {ok, Out} = rt:admin(Node, S),
     ?assertEqual("passpass", Out).

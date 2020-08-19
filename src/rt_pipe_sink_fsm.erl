@@ -50,6 +50,11 @@
 
 -behaviour(gen_fsm).
 
+-compile({nowarn_deprecated_function, 
+            [{gen_fsm, start_link, 3},
+                {gen_fsm, sync_send_event, 2},
+                {gen_fsm, reply, 2}]}).
+
 %% API
 -export([start_link/1,
          start_link/2,
@@ -182,7 +187,7 @@ code_change(_OldVsn, StateName, State, _Extra) ->
 %%%===================================================================
 
 results(#state{results=Results, logs=Logs}) ->
-     {eoi, lists:reverse(Results), lists:reverse(Logs)}.    
+     {eoi, lists:reverse(Results), lists:reverse(Logs)}.
 
 should_skip_ack(From, Result, #state{opts=Opts}) ->
     SkipList = proplists:get_value(skip_ack, Opts, []),

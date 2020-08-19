@@ -6,7 +6,7 @@
 -module(riak_rex).
 -behaviour(riak_test).
 -export([confirm/0]).
--compile(export_all).
+-compile([export_all, nowarn_export_all]).
 -include_lib("eunit/include/eunit.hrl").
 
 %% @doc riak_test entry point
@@ -21,11 +21,11 @@ setup(Type) ->
 rex_test(Node) ->
     % validated we can get the rex pid on the node
     RexPid1 = riak_core_util:safe_rpc(Node, erlang, whereis, [rex]),
-    ?assertEqual(node(RexPid1), Node),
+    ?assertEqual(Node, node(RexPid1)),
     % kill rex on the node and check that safe_rpc works
     kill_rex(Node),
     ErrorTuple = riak_core_util:safe_rpc(Node, erlang, whereis, [rex]),
-    ?assertEqual(ErrorTuple, {badrpc,rpc_process_down}),
+    ?assertEqual(badrpc, element(1, ErrorTuple)),
     % restart rex
     supervisor:restart_child({kernel_sup, Node}, rex),
     RexPid2 = riak_core_util:safe_rpc(Node, erlang, whereis, [rex]),

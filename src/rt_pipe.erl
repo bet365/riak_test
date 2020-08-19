@@ -1,7 +1,10 @@
 %% @doc Utilities for riak_pipe tests.
 -module(rt_pipe).
 
--compile(export_all).
+-compile({nowarn_deprecated_function, 
+            [{gen_fsm, sync_send_all_state_event, 2}]}).
+
+-compile([export_all, nowarn_export_all]).
 
 %% local copy of riak_pipe.hrl
 -include("rt_pipe.hrl").
@@ -86,7 +89,7 @@ self_sink() ->
 assert_no_zombies(Nodes) ->
     lager:info("Verify no zombie pipe processes"),
     ?assertEqual([], zombies(Nodes)).
-    
+
 %% @doc Find transient pipe processes sticking around. Should be run
 %% after tests complete.
 zombies(Nodes) ->

@@ -34,7 +34,7 @@
 
 -module(kv679_dataloss).
 -behavior(riak_test).
--compile([export_all]).
+-compile([export_all, nowarn_export_all]).
 -export([confirm/0]).
 
 -include_lib("eunit/include/eunit.hrl").
@@ -119,6 +119,7 @@ delete_datadir({{Idx, Node}, Type}) ->
     Path = filename:join([rtdev:relpath(current),
                           "dev",
                           "dev"++ integer_to_list(rtdev:node_id(Node)),
+                          "riak",
                           DataRoot,
                           integer_to_list(Idx)]),
     lager:info("Path ~p~n", [Path]),
@@ -133,7 +134,9 @@ delete_datadir({{Idx, Node}, Type}) ->
 backend_name_from_mod(riak_kv_bitcask_backend) ->
     bitcask;
 backend_name_from_mod(riak_kv_eleveldb_backend) ->
-    eleveldb.
+    eleveldb;
+backend_name_from_mod(riak_kv_leveled_backend) ->
+    leveled.
 
 del_dir(Dir) ->
    lists:foreach(fun(D) ->

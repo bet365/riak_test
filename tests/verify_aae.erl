@@ -37,7 +37,8 @@
 %% if there is no activity.  That was an actual early AAE bug.
 
 -module(verify_aae).
--export([confirm/0, verify_aae/1, test_single_partition_loss/3]).
+-export([confirm/0, verify_aae/1]).
+-export([test_single_partition_loss/3, test_less_than_n_writes/2]).
 -include_lib("eunit/include/eunit.hrl").
 
 % I would hope this would come from the testing framework some day
@@ -202,13 +203,14 @@ verify_data(Node, KeyValues) ->
     MaxTime = rt_config:get(rt_max_wait_time),
     Delay = 2000, % every two seconds until max time.
     Retry = MaxTime div Delay,
-    case rt:wait_until(CheckFun, Retry, Delay) of
-        ok ->
-            lager:info("Data is now correct. Yay!");
-        fail ->
-            lager:error("AAE failed to fix data"),
-            ?assertEqual(aae_fixed_data, aae_failed_to_fix_data)
-    end,
+    ok = 
+        case rt:wait_until(CheckFun, Retry, Delay) of
+            ok ->
+                lager:info("Data is now correct. Yay!");
+            fail ->
+                lager:error("AAE failed to fix data"),
+                aae_failed_to_fix_data
+        end,
     riakc_pb_socket:stop(PB),
     ok.
 
@@ -277,7 +279,9 @@ base_dir_for_backend(undefined) ->
 base_dir_for_backend(bitcask) ->
     "bitcask";
 base_dir_for_backend(eleveldb) ->
-    "leveldb".
+    "leveldb";
+base_dir_for_backend(leveled) ->
+    "leveled".
 
 restart_vnode(Node, Service, Partition) ->
     VNodeName = list_to_atom(atom_to_list(Service) ++ "_vnode"),

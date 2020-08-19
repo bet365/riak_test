@@ -18,7 +18,7 @@
 %%
 %% -------------------------------------------------------------------
 -module(overload).
--compile(export_all).
+-compile([export_all, nowarn_export_all]).
 -include_lib("eunit/include/eunit.hrl").
 
 -cover_modules([riak_kv_vnode,
@@ -115,8 +115,7 @@ confirm() ->
     pass.
 
 generate_key() ->
-    random:seed(erlang:now()),
-    N = random:uniform(500),
+    N = rand:uniform(500),
 
     Part1 = <<"overload_test_key_">>,
     Part2 = integer_to_binary(N),
@@ -378,7 +377,7 @@ read_until_success(Node) ->
     read_until_success(C, 0).
 
 read_until_success(C, Count) ->
-    case C:get(<<"dummy">>, <<"dummy">>) of
+    case riak_client:get(<<"dummy">>, <<"dummy">>, C) of
         {error, mailbox_overload} ->
             read_until_success(C, Count+1);
         _ ->
@@ -451,20 +450,19 @@ remote_suspend_and_overload() ->
                        lager:info("Suspending vnode pid: ~p~n", [Pid]),
                        erlang:suspend_process(Pid)
                    end || {riak_kv_vnode, _, Pid} <- Vnodes],
-                  ?MODULE:wait_for_input(Vnodes)
+                  wait_for_input(Vnodes)
           end).
 
 wait_for_input(Vnodes) ->
     receive
         {overload, From} ->
             lager:info("Overloading vnodes.", []),
-            [?MODULE:overload(Vnodes, Pid) ||
-                {riak_kv_vnode, _, Pid} <- Vnodes],
+            [overload(Vnodes, Pid) || {riak_kv_vnode, _, Pid} <- Vnodes],
             lager:info("Sending overloaded message back to test.", []),
             From ! {overloaded, self()},
             wait_for_input(Vnodes);
         {verify_overload, From} ->
-            OverloadCheck = ?MODULE:verify_overload(Vnodes),
+            OverloadCheck = verify_overload(Vnodes),
             From ! OverloadCheck,
             wait_for_input(Vnodes);
         resume ->
@@ -574,22 +572,23 @@ get_num_running_gen_fsm(Node) ->
 remote_vnode_gets_in_queue(Idx) ->
     {ok, Pid} = riak_core_vnode_manager:get_vnode_pid(Idx, riak_kv_vnode),
     {messages, AllMessages} = process_info(Pid, messages),
-
-    GetMessages = lists:foldl(fun(E, A) ->
-                                      case is_get_req(E) of
-                                          true -> A + 1;
-                                          false -> A
-                                      end
-                              end, 0, AllMessages),
-
-    lager:info("Get requests (~p): ~p", [Idx, GetMessages]),
-    GetMessages.
+    GetMessages = lists:filter(fun is_get_req/1, AllMessages),
+    lager:info("Get requests (~p): ~p", [Idx, length(GetMessages)]),
+    length(GetMessages).
 
 %% This is not the greatest thing ever, since we're coupling this test pretty
 %% tightly to the internal representation of get requests in riak_kv...can't
 %% really figure out a better way to do this, though.
 is_get_req({'$gen_event', {riak_vnode_req_v1, _, _, Req}}) ->
-    element(1, Req) =:= riak_kv_get_req_v1;
+    case element(1, Req) of
+        riak_kv_get_req_v1 ->
+            true;
+        riak_kv_head_req_v1 ->
+            % May also now be a head request once we start testing 2.2.7
+            true;
+        _ ->
+            false
+    end;
 is_get_req(_) ->
     false.
 

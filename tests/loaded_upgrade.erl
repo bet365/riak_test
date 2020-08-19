@@ -40,7 +40,7 @@ confirm() ->
     Backend = proplists:get_value(backend, TestMetaData),
     OldVsn = proplists:get_value(upgrade_version, TestMetaData, previous),
 
-    Config = [{riak_search, [{enabled, true}]}, {riak_pipe, [{worker_limit, 200}]}],
+    Config = [{riak_pipe, [{worker_limit, 200}]}],
     NumNodes = 4,
     Vsns = [{OldVsn, Config} || _ <- lists:seq(1,NumNodes)],
     Nodes = rt:build_cluster(Vsns),
@@ -57,20 +57,20 @@ confirm() ->
                                        {version, OldVsn},
                                        {report_pid, self()}]), Node} || Node <- Nodes],
 
-    upgrade_recv_loop(),
+    ok = upgrade_recv_loop(),
 
     [begin
          exit(Sup, normal),
          lager:info("Upgrading ~p", [Node]),
          rt:upgrade(Node, current),
-         rt:wait_for_service(Node, [riak_search,riak_kv,riak_pipe]),
+         rt:wait_for_service(Node, [riak_kv, riak_pipe]),
          {ok, NewSup} = rt_worker_sup:start_link([{concurrent, Concurrent},
                                                   {node, Node},
                                                   {backend, Backend},
                                                   {version, current},
                                                   {report_pid, self()}]),
          _NodeMon = init_node_monitor(Node, NewSup, self()),
-         upgrade_recv_loop()
+         ok = upgrade_recv_loop()
      end || {{ok, Sup}, Node} <- Sups],
     pass.
 
@@ -94,15 +94,13 @@ upgrade_recv_loop(EndTime) ->
         _ ->
             receive
                 {mapred, Node, bad_result} ->
-                    ?assertEqual(true, {mapred, Node, bad_result});
+                    {mapred_bad_result, Node};
                 {kv, Node, not_equal} ->
-                    ?assertEqual(true, {kv, Node, bad_result});
+                    {kv_not_equal, Node};
                 {kv, Node, {notfound, Key}} ->
-                    ?assertEqual(true, {kv, Node, {notfound, Key}});
+                    {kv_notfound, Node, Key};
                 {listkeys, Node, not_equal} ->
-                    ?assertEqual(true, {listkeys, Node, not_equal});
-                {search, Node, bad_result} ->
-                    ?assertEqual(true, {search, Node, bad_result});
+                    {listkeys_not_equal, Node};
                 Msg ->
                     lager:debug("Received Mesg ~p", [Msg]),
                     upgrade_recv_loop(EndTime)
@@ -111,7 +109,7 @@ upgrade_recv_loop(EndTime) ->
             end
     end.
 
-seed_cluster(Nodes=[Node1|_]) ->
+seed_cluster(_Nodes=[Node1|_]) ->
     lager:info("Seeding Cluster"),
 
     %% For List Keys
@@ -131,34 +129,12 @@ seed_cluster(Nodes=[Node1|_]) ->
     twoi_seed(Node1),
 
     %% for mapred
-    mr_seed(Node1),
-
-    %% For MC Serch
-    rt:enable_search_hook(Node1, bucket(search)),
-    rt:wait_until_ring_converged(Nodes),
-    seed_search(Node1).
+    mr_seed(Node1).
 
 %% Buckets
 bucket(kv) -> <<"utest">>;
 bucket(twoi) -> <<"2ibuquot">>;
-bucket(mapred) -> <<"bryanitbs">>;
-bucket(search) -> <<"scotts_spam">>.
-
-seed_search(Node) ->
-    Pid = rt:pbc(Node),
-    SpamDir = rt_config:get(spam_dir),
-    Files = case SpamDir of
-                undefined -> undefined;
-                _ -> filelib:wildcard(SpamDir ++ "/*")
-            end,
-    seed_search(Pid, Files),
-    riakc_pb_socket:stop(Pid).
-
-seed_search(_Pid, []) -> ok;
-seed_search(Pid, [File|Files]) ->
-    Key = list_to_binary(filename:basename(File)),
-    rt:pbc_put_file(Pid, bucket(search), Key, File),
-    seed_search(Pid, Files).
+bucket(mapred) -> <<"bryanitbs">>.
 
 kv_seed(Node) ->
     ValFun = fun(Key) ->

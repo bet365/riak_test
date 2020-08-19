@@ -19,8 +19,9 @@
 %% -------------------------------------------------------------------
 -module(verify_riak_stats).
 -behavior(riak_test).
--export([confirm/0]).
+-export([confirm/0, get_stats/1]).
 -include_lib("eunit/include/eunit.hrl").
+-include("../src/stacktrace.hrl").
 
 -define(CTYPE, <<"counters">>).
 -define(STYPE, <<"sets">>).
@@ -28,10 +29,7 @@
 -define(TYPES, [{?CTYPE, counter},
                 {?STYPE, set},
                 {?MTYPE, map}]).
--define(CONF, [
-        {yokozuna,
-            [{enabled, true}]
-        }]).
+-define(CONF, []).
 
 %% You should have curl installed locally to do this.
 confirm() ->
@@ -40,12 +38,15 @@ confirm() ->
     verify_dt_converge:create_bucket_types(Nodes, ?TYPES),
     ?assertEqual(ok, rt:wait_until_nodes_ready([Node1])),
     Stats1 = get_stats(Node1),
+    TestMetaData = riak_test_runner:metadata(),
+    KVBackend = proplists:get_value(backend, TestMetaData),
+    HeadSupport = has_head_support(KVBackend),
 
     lager:info("Verifying that all expected stats keys are present from the HTTP endpoint"),
     ok = verify_stats_keys_complete(Node1, Stats1),
 
     AdminStats1 = get_console_stats(Node1),
-    lager:info("Verifying that the stats keys in riak-admin status and HTTP match"),
+    lager:info("Verifying that the stats keys in riak admin status and HTTP match"),
     ok = compare_http_and_console_stats(Stats1, AdminStats1),
 
     %% make sure a set of stats have valid values
@@ -79,15 +80,37 @@ confirm() ->
 
     Stats2 = get_stats(Node1),
 
+    ExpectedNodeStats = 
+        case HeadSupport of
+            true ->
+                [{<<"node_gets">>, 10},
+                    {<<"node_puts">>, 5},
+                    {<<"node_gets_total">>, 10},
+                    {<<"node_puts_total">>, 5},
+                    {<<"vnode_gets">>, 5}, 
+                        % The five PUTS will require only HEADs
+                    {<<"vnode_heads">>, 30},
+                        % There is no reduction in the count of HEADs
+                        % as HEADS before GETs
+                    {<<"vnode_puts">>, 15},
+                    {<<"vnode_gets_total">>, 5},
+                    {<<"vnode_heads_total">>, 30},
+                    {<<"vnode_puts_total">>, 15}];
+            false ->
+                [{<<"node_gets">>, 10},
+                    {<<"node_puts">>, 5},
+                    {<<"node_gets_total">>, 10},
+                    {<<"node_puts_total">>, 5},
+                    {<<"vnode_gets">>, 30},
+                    {<<"vnode_heads">>, 0},
+                    {<<"vnode_puts">>, 15},
+                    {<<"vnode_gets_total">>, 30},
+                    {<<"vnode_heads_total">>, 0},
+                    {<<"vnode_puts_total">>, 15}]
+        end,
+
     %% make sure the stats that were supposed to increment did
-    verify_inc(Stats1, Stats2, [{<<"node_gets">>, 10},
-                                {<<"node_puts">>, 5},
-                                {<<"node_gets_total">>, 10},
-                                {<<"node_puts_total">>, 5},
-                                {<<"vnode_gets">>, 30},
-                                {<<"vnode_puts">>, 15},
-                                {<<"vnode_gets_total">>, 30},
-                                {<<"vnode_puts_total">>, 15}]),
+    verify_inc(Stats1, Stats2, ExpectedNodeStats),
 
     %% verify that fsm times were tallied
     verify_nz(Stats2, [<<"node_get_fsm_time_mean">>,
@@ -100,7 +123,6 @@ confirm() ->
                        <<"node_put_fsm_time_95">>,
                        <<"node_put_fsm_time_99">>,
                        <<"node_put_fsm_time_100">>]),
-
 
     lager:info("Make PBC Connection"),
     Pid = rt:pbc(Node1),
@@ -140,6 +162,14 @@ confirm() ->
          lager:info("~s: ~p (expected non-zero)", [S, proplists:get_value(S, Stats6)]),
          verify_nz(Stats6, [S])
      end || S <- datatype_stats() ],
+
+    _ = do_pools(Node1),
+
+    Stats7 = get_stats(Node1),
+    lager:info("Verifying pool stats are incremented"),
+
+    verify_inc(Stats6, Stats7, inc_by_one(dscp_stats())),
+
     pass.
 
 verify_inc(Prev, Props, Keys) ->
@@ -153,6 +183,11 @@ verify_inc(Prev, Props, Keys) ->
 verify_nz(Props, Keys) ->
     [?assertNotEqual(proplists:get_value(Key,Props,0), 0) || Key <- Keys].
 
+has_head_support(leveled) ->
+    true;
+has_head_support(_Backend) ->
+    false.
+
 get_stats(Node) ->
     timer:sleep(10000),
     lager:info("Retrieving stats from node ~s", [Node]),
@@ -165,7 +200,7 @@ get_stats(Node) ->
 
 get_console_stats(Node) ->
     %% Problem: rt:admin(Node, Cmd) seems to drop parts of the output when
-    %% used for "riak-admin status" in 'rtdev'.
+    %% used for "riak admin status" in 'rtdev'.
     %% Temporary workaround: use os:cmd/1 when in 'rtdev' (needs some cheats
     %% in order to find the right path etc.)
     try
@@ -184,9 +219,9 @@ get_console_stats(Node) ->
 		  [list_to_tuple(re:split(L, " : ", []))
 		   || L <- tl(tl(string:tokens(Stats, "\n")))]]
     catch
-	error:Reason ->
-	    lager:info("riak-admin status ERROR: ~p~n~p~n",
-		       [Reason, erlang:get_stacktrace()]),
+	    ?_exception_(Error, Reason, StackToken) ->
+	    lager:info("riak admin status ~p: ~p~n~p~n",
+		       [Error, Reason, ?_get_stacktrace_(StackToken)]),
 	    []
     end.
 
@@ -195,7 +230,7 @@ compare_http_and_console_stats(Stats1, Stats2) ->
 		       not lists:keymember(K, 1, Stats2)],
     OnlyInAdmin = [S || {K,_} = S <- Stats2,
 			not lists:keymember(K, 1, Stats1)],
-    maybe_log_stats_keys(OnlyInHttp, "Keys missing from riak-admin"),
+    maybe_log_stats_keys(OnlyInHttp, "Keys missing from riak admin"),
     maybe_log_stats_keys(OnlyInAdmin, "Keys missing from HTTP"),
     ?assertEqual([], OnlyInHttp),
     ?assertEqual([], OnlyInAdmin),
@@ -405,9 +440,14 @@ common_stats() ->
     [
         <<"asn1_version">>,
         <<"basho_stats_version">>,
+        <<"bear_version">>,
         <<"bitcask_version">>,
+        <<"canola_version">>,
         <<"clique_version">>,
         <<"cluster_info_version">>,
+        <<"clusteraae_fsm_create">>,
+        <<"clusteraae_fsm_create_error">>,
+        <<"clusteraae_fsm_active">>,
         <<"compiler_version">>,
         <<"connected_nodes">>,
         <<"consistent_get_objsize_100">>,
@@ -439,6 +479,13 @@ common_stats() ->
         <<"converge_delay_mean">>,
         <<"converge_delay_min">>,
         <<"coord_redirs_total">>,
+        <<"coord_redir_least_loaded_total">>,
+        <<"coord_local_unloaded_total">>,
+        <<"coord_local_soft_loaded_total">>,
+        <<"vnode_mbox_check_timeout_total">>,
+        <<"coord_redir_unloaded_total">>,
+        <<"coord_redir_loaded_local_total">>,
+        <<"soft_loaded_vnode_mbox_total">>,
         <<"counter_actor_counts_100">>,
         <<"counter_actor_counts_95">>,
         <<"counter_actor_counts_99">>,
@@ -449,14 +496,16 @@ common_stats() ->
         <<"cpu_avg5">>,
         <<"cpu_nprocs">>,
         <<"crypto_version">>,
+        <<"cuttlefish_version">>,
         <<"disk">>,
         <<"dropped_vnode_requests_total">>,
+        <<"ebloom_version">>,
         <<"eleveldb_version">>,
-        <<"erlang_js_version">>,
-        <<"erlydtl_version">>,
         <<"executing_mappers">>,
         <<"exometer_core_version">>,
-        <<"fuse_version">>,
+        <<"folsom_version">>,
+        % No yokozuna <<"fuse_version">>, 
+        <<"getopt_version">>,
         <<"goldrush_version">>,
         <<"gossip_received">>,
         <<"handoff_timeouts">>,
@@ -467,6 +516,8 @@ common_stats() ->
         <<"hll_bytes_99">>,
         <<"hll_bytes_median">>,
         <<"hll_bytes_total">>,
+        <<"hut_version">>,
+        <<"hyper_version">>,
         <<"ibrowse_version">>,
         <<"ignored_gossip_total">>,
         <<"index_fsm_active">>,
@@ -474,9 +525,13 @@ common_stats() ->
         <<"index_fsm_create_error">>,
         <<"inets_version">>,
         <<"kernel_version">>,
+        % No yokozuna <<"kvc_version">>,
+        <<"kv_index_tictactree_version">>,
         <<"lager_version">>,
+        <<"lager_syslog_version">>,
         <<"late_put_fsm_coordinator_ack">>,
         <<"leveldb_read_block_error">>,
+        <<"leveled_version">>,
         <<"list_fsm_active">>,
         <<"list_fsm_create">>,
         <<"list_fsm_create_error">>,
@@ -498,8 +553,19 @@ common_stats() ->
         <<"memory_processes_used">>,
         <<"memory_system">>,
         <<"memory_total">>,
-        <<"merge_index_version">>,
         <<"mochiweb_version">>,
+        <<"ngrfetch_nofetch">>,
+        <<"ngrfetch_nofetch_total">>,
+        <<"ngrfetch_prefetch">>,
+        <<"ngrfetch_prefetch_total">>,
+        <<"ngrfetch_tofetch">>,
+        <<"ngrfetch_tofetch_total">>,
+        <<"ngrrepl_object">>,
+        <<"ngrrepl_object_total">>,
+        <<"ngrrepl_empty">>,
+        <<"ngrrepl_empty_total">>,
+        <<"ngrrepl_error">>,
+        <<"ngrrepl_error_total">>,
         <<"node_get_fsm_active">>,
         <<"node_get_fsm_active_60s">>,
         <<"node_get_fsm_counter_objsize_100">>,
@@ -673,6 +739,7 @@ common_stats() ->
         <<"object_set_merge_time_median">>,
         <<"object_set_merge_total">>,
         <<"os_mon_version">>,
+        <<"parse_trans_version">>,
         <<"pbc_active">>,
         <<"pbc_connects">>,
         <<"pbc_connects_total">>,
@@ -685,8 +752,8 @@ common_stats() ->
         <<"poolboy_version">>,
         <<"postcommit_fail">>,
         <<"precommit_fail">>,
-        <<"protobuffs_version">>,
         <<"public_key_version">>,
+        <<"ranch_version">>,
         <<"read_repairs">>,
         <<"read_repairs_counter">>,
         <<"read_repairs_counter_total">>,
@@ -709,10 +776,11 @@ common_stats() ->
         <<"rebalance_delay_max">>,
         <<"rebalance_delay_mean">>,
         <<"rebalance_delay_min">>,
+        <<"recon_version">>,
+        <<"redbug_version">>,
         <<"rejected_handoffs">>,
         <<"riak_api_version">>,
         <<"riak_auth_mods_version">>,
-        <<"riak_control_version">>,
         <<"riak_core_version">>,
         <<"riak_dt_version">>,
         <<"riak_kv_version">>,
@@ -730,8 +798,10 @@ common_stats() ->
         <<"riak_pipe_vnodeq_min">>,
         <<"riak_pipe_vnodeq_total">>,
         <<"riak_pipe_vnodes_running">>,
-        <<"riak_search_version">>,
+        <<"riak_repl_version">>,
         <<"riak_sysmon_version">>,
+        <<"riakc_version">>,
+        <<"riakhttpc_version">>,
         <<"ring_creation_size">>,
         <<"ring_members">>,
         <<"ring_num_partitions">>,
@@ -740,79 +810,82 @@ common_stats() ->
         <<"rings_reconciled_total">>,
         <<"runtime_tools_version">>,
         <<"sasl_version">>,
-        <<"search_blockedvnode_count">>,
-        <<"search_blockedvnode_one">>,
-        <<"search_detected_repairs_count">>,
-        <<"search_index_bad_entry_count">>,
-        <<"search_index_bad_entry_one">>,
-        <<"search_index_error_threshold_blown_count">>,
-        <<"search_index_error_threshold_blown_one">>,
-        <<"search_index_error_threshold_failure_count">>,
-        <<"search_index_error_threshold_failure_one">>,
-        <<"search_index_error_threshold_ok_count">>,
-        <<"search_index_error_threshold_ok_one">>,
-        <<"search_index_error_threshold_recovered_count">>,
-        <<"search_index_error_threshold_recovered_one">>,
-        <<"search_index_extract_fail_count">>,
-        <<"search_index_extract_fail_one">>,
-        <<"search_index_fail_count">>,
-        <<"search_index_fail_one">>,
-        <<"search_index_latency_95">>,
-        <<"search_index_latency_99">>,
-        <<"search_index_latency_999">>,
-        <<"search_index_latency_max">>,
-        <<"search_index_latency_mean">>,
-        <<"search_index_latency_median">>,
-        <<"search_index_latency_min">>,
-        <<"search_index_throughput_count">>,
-        <<"search_index_throughput_one">>,
-        <<"search_query_fail_count">>,
-        <<"search_query_fail_one">>,
-        <<"search_query_latency_95">>,
-        <<"search_query_latency_99">>,
-        <<"search_query_latency_999">>,
-        <<"search_query_latency_max">>,
-        <<"search_query_latency_mean">>,
-        <<"search_query_latency_median">>,
-        <<"search_query_latency_min">>,
-        <<"search_query_throughput_count">>,
-        <<"search_query_throughput_one">>,
-        <<"search_queue_batch_latency_95">>,
-        <<"search_queue_batch_latency_99">>,
-        <<"search_queue_batch_latency_999">>,
-        <<"search_queue_batch_latency_max">>,
-        <<"search_queue_batch_latency_mean">>,
-        <<"search_queue_batch_latency_median">>,
-        <<"search_queue_batch_latency_min">>,
-        <<"search_queue_batch_throughput_count">>,
-        <<"search_queue_batch_throughput_one">>,
-        <<"search_queue_batchsize_max">>,
-        <<"search_queue_batchsize_mean">>,
-        <<"search_queue_batchsize_median">>,
-        <<"search_queue_batchsize_min">>,
-        <<"search_queue_drain_cancel_timeout_count">>,
-        <<"search_queue_drain_cancel_timeout_one">>,
-        <<"search_queue_drain_count">>,
-        <<"search_queue_drain_fail_count">>,
-        <<"search_queue_drain_fail_one">>,
-        <<"search_queue_drain_latency_95">>,
-        <<"search_queue_drain_latency_99">>,
-        <<"search_queue_drain_latency_999">>,
-        <<"search_queue_drain_latency_max">>,
-        <<"search_queue_drain_latency_mean">>,
-        <<"search_queue_drain_latency_median">>,
-        <<"search_queue_drain_latency_min">>,
-        <<"search_queue_drain_one">>,
-        <<"search_queue_drain_timeout_count">>,
-        <<"search_queue_drain_timeout_one">>,
-        <<"search_queue_hwm_purged_count">>,
-        <<"search_queue_hwm_purged_one">>,
-        <<"search_queue_total_length">>,
+        % No yokozuna
+        % <<"search_blockedvnode_count">>,
+        % <<"search_blockedvnode_one">>,
+        % <<"search_detected_repairs_count">>,
+        % <<"search_index_bad_entry_count">>,
+        % <<"search_index_bad_entry_one">>,
+        % <<"search_index_error_threshold_blown_count">>,
+        % <<"search_index_error_threshold_blown_one">>,
+        % <<"search_index_error_threshold_failure_count">>,
+        % <<"search_index_error_threshold_failure_one">>,
+        % <<"search_index_error_threshold_ok_count">>,
+        % <<"search_index_error_threshold_ok_one">>,
+        % <<"search_index_error_threshold_recovered_count">>,
+        % <<"search_index_error_threshold_recovered_one">>,
+        % <<"search_index_extract_fail_count">>,
+        % <<"search_index_extract_fail_one">>,
+        % <<"search_index_fail_count">>,
+        % <<"search_index_fail_one">>,
+        % <<"search_index_latency_95">>,
+        % <<"search_index_latency_99">>,
+        % <<"search_index_latency_999">>,
+        % <<"search_index_latency_max">>,
+        % <<"search_index_latency_mean">>,
+        % <<"search_index_latency_median">>,
+        % <<"search_index_latency_min">>,
+        % <<"search_index_throughput_count">>,
+        % <<"search_index_throughput_one">>,
+        % <<"search_query_fail_count">>,
+        % <<"search_query_fail_one">>,
+        % <<"search_query_latency_95">>,
+        % <<"search_query_latency_99">>,
+        % <<"search_query_latency_999">>,
+        % <<"search_query_latency_max">>,
+        % <<"search_query_latency_mean">>,
+        % <<"search_query_latency_median">>,
+        % <<"search_query_latency_min">>,
+        % <<"search_query_throughput_count">>,
+        % <<"search_query_throughput_one">>,
+        % <<"search_queue_batch_latency_95">>,
+        % <<"search_queue_batch_latency_99">>,
+        % <<"search_queue_batch_latency_999">>,
+        % <<"search_queue_batch_latency_max">>,
+        % <<"search_queue_batch_latency_mean">>,
+        % <<"search_queue_batch_latency_median">>,
+        % <<"search_queue_batch_latency_min">>,
+        % <<"search_queue_batch_throughput_count">>,
+        % <<"search_queue_batch_throughput_one">>,
+        % <<"search_queue_batchsize_max">>,
+        % <<"search_queue_batchsize_mean">>,
+        % <<"search_queue_batchsize_median">>,
+        % <<"search_queue_batchsize_min">>,
+        % <<"search_queue_drain_cancel_timeout_count">>,
+        % <<"search_queue_drain_cancel_timeout_one">>,
+        % <<"search_queue_drain_count">>,
+        % <<"search_queue_drain_fail_count">>,
+        % <<"search_queue_drain_fail_one">>,
+        % <<"search_queue_drain_latency_95">>,
+        % <<"search_queue_drain_latency_99">>,
+        % <<"search_queue_drain_latency_999">>,
+        % <<"search_queue_drain_latency_max">>,
+        % <<"search_queue_drain_latency_mean">>,
+        % <<"search_queue_drain_latency_median">>,
+        % <<"search_queue_drain_latency_min">>,
+        % <<"search_queue_drain_one">>,
+        % <<"search_queue_drain_timeout_count">>,
+        % <<"search_queue_drain_timeout_one">>,
+        % <<"search_queue_hwm_purged_count">>,
+        % <<"search_queue_hwm_purged_one">>,
+        % <<"search_queue_total_length">>,
+        <<"setup_version">>,
         <<"set_actor_counts_100">>,
         <<"set_actor_counts_95">>,
         <<"set_actor_counts_99">>,
         <<"set_actor_counts_mean">>,
         <<"set_actor_counts_median">>,
+        <<"sext_version">>,
         <<"sidejob_version">>,
         <<"skipped_read_repairs">>,
         <<"skipped_read_repairs_total">>,
@@ -834,6 +907,9 @@ common_stats() ->
         <<"sys_thread_pool_size">>,
         <<"sys_threads_enabled">>,
         <<"sys_wordsize">>,
+        <<"syslog_version">>,
+        <<"tictacaae_queue_microsec__max">>,
+        <<"tictacaae_queue_microsec_mean">>,
         <<"vnode_counter_update">>,
         <<"vnode_counter_update_time_100">>,
         <<"vnode_counter_update_time_95">>,
@@ -848,6 +924,13 @@ common_stats() ->
         <<"vnode_get_fsm_time_median">>,
         <<"vnode_gets">>,
         <<"vnode_gets_total">>,
+        <<"vnode_head_fsm_time_100">>,
+        <<"vnode_head_fsm_time_95">>,
+        <<"vnode_head_fsm_time_99">>,
+        <<"vnode_head_fsm_time_mean">>,
+        <<"vnode_head_fsm_time_median">>,
+        <<"vnode_heads">>,
+        <<"vnode_heads_total">>,
         <<"vnode_hll_update">>,
         <<"vnode_hll_update_time_100">>,
         <<"vnode_hll_update_time_95">>,
@@ -902,9 +985,8 @@ common_stats() ->
         <<"write_once_put_time_median">>,
         <<"write_once_puts">>,
         <<"write_once_puts_total">>,
-        <<"xmerl_version">>,
-        <<"yokozuna_version">>
-    ].
+        <<"xmerl_version">>
+    ] ++ pool_stats().
 
 product_stats(riak_ee) ->
     [
@@ -918,3 +1000,38 @@ product_stats(riak_ee) ->
     ];
 product_stats(riak) ->
     [].
+
+pool_stats() ->
+    dscp_stats() ++
+        [<<"node_worker_pool_node_worker_pool_total">>,
+         <<"node_worker_pool_unregistered_total">>,
+         <<"vnode_worker_pool_total">>].
+
+dscp_stats() ->
+    [<<"node_worker_pool_af1_pool_total">>,
+     <<"node_worker_pool_af2_pool_total">>,
+     <<"node_worker_pool_af3_pool_total">>,
+     <<"node_worker_pool_af4_pool_total">>,
+     <<"node_worker_pool_be_pool_total">>].
+
+do_pools(Node) ->
+    do_pools(Node, rpc:call(Node, riak_core_node_worker_pool, dscp_pools, [])).
+
+do_pools(_Node, []) ->
+    ok;
+do_pools(Node, [Pool | Pools]) ->
+    do_pool(Node, Pool),
+    do_pools(Node, Pools).
+
+do_pool(Node, Pool) ->
+    WorkFun = fun() -> ok end,
+    FinishFun = fun(ok) -> ok end,
+    Work = {fold, WorkFun, FinishFun},
+    Res = rpc:call(Node, riak_core_node_worker_pool, handle_work, [Pool, Work, undefined]),
+    lager:info("Pool ~p returned ~p", [Pool, Res]).
+
+inc_by_one(StatNames) ->
+    inc_by(StatNames, 1).
+
+inc_by(StatNames, Amt) ->
+    [{StatName, Amt} || StatName <- StatNames].

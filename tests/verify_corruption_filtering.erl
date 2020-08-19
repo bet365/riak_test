@@ -30,7 +30,7 @@
 %% Test plan:
 %%   - build a 2-node cluster
 %%   - load values
-%%   - intercept the backend so that it sometimes returns 
+%%   - intercept the backend so that it sometimes returns
 %%     bad data
 %%   - test puts, gets, folds, and handoff.
 
@@ -43,35 +43,37 @@ confirm() ->
     rt:wait_until_pingable(Node2),
 
     load_cluster(Node1),
-   
+
     lager:info("Cluster loaded"),
 
-    case rt_config:get(rt_backend, undefined) of 
+    case rt_config:get(rt_backend, undefined) of
         riak_kv_eleveldb_backend ->
             load_level_intercepts(Nodes);
+        riak_kv_leveled_backend ->
+	    load_leveled_intercepts(Nodes);
         _ ->
             load_bitcask_intercepts(Nodes)
     end,
-    
+
     get_put_mix(Node1),
 
     %% Have node2 leave
     lager:info("Have ~p leave", [Node2]),
     leave(Node2),
     ?assertEqual(ok, wait_until_unpingable(Node2)),
-             
-    %% we'll never get here or timeout if this issue 
+
+    %% we'll never get here or timeout if this issue
     %% isn't fixed.
     pass.
 
 get_put_mix(Node) ->
     PB = rt:pbc(Node),
     [begin
-         Key = random:uniform(1000),
-         case random:uniform(2) of
+         Key = rand:uniform(1000),
+         case rand:uniform(2) of
              1 ->
-                 X = crypto:rand_bytes(512),
-                 riakc_pb_socket:put(PB, 
+                 X = crypto:strong_rand_bytes(512),
+                 riakc_pb_socket:put(PB,
                                      riakc_obj:new(<<"foo">>, <<Key>>,
                                                    X));
              2 ->
@@ -86,12 +88,12 @@ get_put_mix(Node) ->
                      Else -> throw(Else)
                  end
          end
-     end 
+     end
     || _ <- lists:seq(1, 2000)].
 
-load_cluster(Node) -> 
+load_cluster(Node) ->
     PB = rt:pbc(Node),
-    [riakc_pb_socket:put(PB, 
+    [riakc_pb_socket:put(PB,
                          riakc_obj:new(<<"foo">>, <<X>>,
                                        <<X:4096>>))
      || X <- lists:seq(1,1000)].
@@ -99,23 +101,33 @@ load_cluster(Node) ->
 load_level_intercepts(Nodes) ->
     [begin
          rt_intercept:add(Node, {riak_kv_eleveldb_backend,
-                                 [{{get, 3}, corrupting_get}]}),
-         rt_intercept:add(Node, {riak_kv_eleveldb_backend,
-                                 [{{put, 5}, corrupting_put}]}),
+                                 [{{get, 3}, corrupting_get},
+                                  {{put, 5}, corrupting_put}]}),
          rt_intercept:add(Node, {riak_kv_vnode,
-                                 [{{handle_handoff_data, 2}, 
+                                 [{{handle_handoff_data, 2},
                                  corrupting_handle_handoff_data}]})
-     end 
+     end
      || Node <- Nodes].
+
+load_leveled_intercepts(Nodes) ->
+    [begin
+         rt_intercept:add(Node, {riak_kv_leveled_backend,
+                                 [{{get, 3}, corrupting_get},
+                                  {{put, 5}, corrupting_put}]}),
+         rt_intercept:add(Node, {riak_kv_vnode,
+                                 [{{handle_handoff_data, 2},
+                                 corrupting_handle_handoff_data}]})
+     end
+     || Node <- Nodes].
+
 
 load_bitcask_intercepts(Nodes) ->
     [begin
          rt_intercept:add(Node, {riak_kv_bitcask_backend,
-                                 [{{get, 3}, corrupting_get}]}),
-         rt_intercept:add(Node, {riak_kv_bitcask_backend,
-                                 [{{put, 5}, corrupting_put}]}),
+                                 [{{get, 3}, corrupting_get},
+                                  {{put, 5}, corrupting_put}]}),
          rt_intercept:add(Node, {riak_kv_vnode,
-                                 [{{handle_handoff_data, 2}, 
+                                 [{{handle_handoff_data, 2},
                                    corrupting_handle_handoff_data}]})
-     end 
+     end
      || Node <- Nodes].
